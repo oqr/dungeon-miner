@@ -3179,111 +3179,142 @@ class TitleScene extends Phaser.Scene {
     this.cameras.main.setBackgroundColor('#1a1a2e');
 
     // Title
-    this.add.text(cx, 40, 'DUNGEON MINER', {
-      fontSize: '42px', fontFamily: 'Arial, sans-serif', fill: '#FFD700',
+    this.add.text(cx, 28, 'DUNGEON MINER', {
+      fontSize: '44px', fontFamily: 'Arial, sans-serif', fill: '#FFD700',
       stroke: '#000', strokeThickness: 6, fontStyle: 'bold'
+    }).setOrigin(0.5);
+
+    // Created by
+    this.add.text(cx, 62, 'Created by Evan & Willa Rothschild', {
+      fontSize: '15px', fontFamily: 'Arial, sans-serif', fill: '#CC99FF',
+      fontStyle: 'italic'
+    }).setOrigin(0.5);
+
+    // Version
+    this.add.text(cx, 80, 'v1.0', {
+      fontSize: '12px', fontFamily: 'Arial, sans-serif', fill: '#777777'
     }).setOrigin(0.5);
 
     // Story text
     const story = [
-      'You were a normal human.',
-      'You lived in a normal city.',
-      '',
-      'But then the zombies came.',
-      'They took over the world.',
+      'You were a normal human. You lived in a normal city.',
+      'But then the zombies came. They took over the world.',
       'They locked you up and threw you in jail.',
       '',
-      'Now you have to escape.',
-      'Monsters are everywhere.',
-      'Break out. Fight. Survive.'
+      'Now you have to escape. Break out. Fight. Survive.',
+      'Rescue the prisoners on the final floor to win!'
     ];
 
-    const storyStyle = {
-      fontSize: '16px', fontFamily: 'Arial, sans-serif', fill: '#CCCCCC',
-      align: 'center', lineSpacing: 4
-    };
-    this.add.text(cx, 90, story.join('\n'), storyStyle).setOrigin(0.5, 0);
+    this.add.text(cx, 96, story.join('\n'), {
+      fontSize: '14px', fontFamily: 'Arial, sans-serif', fill: '#CCCCCC',
+      align: 'center', lineSpacing: 3
+    }).setOrigin(0.5, 0);
 
-    // Controls section (compact, below story)
-    const controlsY = 310;
-    const controlStyle = { fontSize: '14px', fontFamily: 'Arial', fill: '#888888' };
-    const keyStyle = { fontSize: '13px', fontFamily: 'Arial', fill: '#AAAAAA', fontStyle: 'bold' };
+    // What's New section
+    const newsY = 200;
+    const newsG = this.add.graphics();
+    newsG.fillStyle(0xFFFFFF, 0.04);
+    newsG.fillRoundedRect(cx - 210, newsY - 6, 420, 100, 8);
+
+    this.add.text(cx, newsY, "WHAT'S NEW IN v1.0", {
+      fontSize: '12px', fontFamily: 'Arial, sans-serif', fill: '#FFD700',
+      fontStyle: 'bold'
+    }).setOrigin(0.5, 0);
+
+    const updates = [
+      '- 5 biomes: Jail, Dungeon, Forest, Ice, Sand',
+      '- 21 floors with final prison rescue mission',
+      '- Biome trees: leafy, pine w/ snow, palm w/ coconuts',
+      '- Circle slash attack + homing diamond sword',
+      '- Butterfly companion that fights with you',
+      '- 10 sword tiers + 8 armor tiers',
+      '- Shop building with animated shopkeeper'
+    ];
+
+    this.add.text(cx, newsY + 16, updates.join('\n'), {
+      fontSize: '11px', fontFamily: 'Arial, sans-serif', fill: '#999999',
+      align: 'center', lineSpacing: 1
+    }).setOrigin(0.5, 0);
+
+    // Controls section
+    const controlsY = 308;
+    const controlStyle = { fontSize: '13px', fontFamily: 'Arial', fill: '#888888' };
+    const keyStyle = { fontSize: '12px', fontFamily: 'Arial', fill: '#AAAAAA', fontStyle: 'bold' };
 
     const guideG = this.add.graphics();
-
-    // Controls background
     guideG.fillStyle(0xFFFFFF, 0.05);
-    guideG.fillRoundedRect(cx - 200, controlsY - 10, 400, 120, 10);
+    guideG.fillRoundedRect(cx - 200, controlsY - 8, 400, 105, 10);
 
     // Row 1: Move
-    this.add.text(cx - 180, controlsY, 'Arrow Keys / WASD', keyStyle);
+    this.add.text(cx - 180, controlsY, 'Arrows / WASD', keyStyle);
     this.add.text(cx + 50, controlsY, 'Move', controlStyle);
-    // Tiny player
     guideG.fillStyle(COLORS.PLAYER, 1);
-    guideG.fillRoundedRect(cx + 120, controlsY - 2, 16, 16, 4);
+    guideG.fillRoundedRect(cx + 120, controlsY - 1, 14, 14, 4);
     guideG.fillStyle(0xFFFFFF, 1);
-    guideG.fillCircle(cx + 125, controlsY + 4, 2);
-    guideG.fillCircle(cx + 131, controlsY + 4, 2);
+    guideG.fillCircle(cx + 124, controlsY + 4, 2);
+    guideG.fillCircle(cx + 130, controlsY + 4, 2);
 
     // Row 2: Attack
-    this.add.text(cx - 180, controlsY + 28, 'Space', keyStyle);
-    this.add.text(cx + 50, controlsY + 28, 'Attack + Mine', controlStyle);
-    drawSword(guideG, cx + 140, controlsY + 36, 14, 0x999999);
+    this.add.text(cx - 180, controlsY + 24, 'Space', keyStyle);
+    this.add.text(cx + 50, controlsY + 24, 'Attack + Mine', controlStyle);
+    drawSword(guideG, cx + 138, controlsY + 32, 12, 0x999999);
 
     // Row 3: Store
-    this.add.text(cx - 180, controlsY + 56, 'E', keyStyle);
-    this.add.text(cx + 50, controlsY + 56, 'Open Store', controlStyle);
+    this.add.text(cx - 180, controlsY + 48, 'E', keyStyle);
+    this.add.text(cx + 50, controlsY + 48, 'Open Store', controlStyle);
     guideG.fillStyle(0x3CB371, 0.8);
-    guideG.fillRoundedRect(cx + 133, controlsY + 54, 14, 14, 3);
+    guideG.fillRoundedRect(cx + 132, controlsY + 46, 12, 12, 3);
 
     // Row 4: Potion
-    this.add.text(cx - 180, controlsY + 84, 'F', keyStyle);
-    this.add.text(cx + 50, controlsY + 84, 'Drink Potion', controlStyle);
-    drawPotion(guideG, cx + 140, controlsY + 92, 14);
+    this.add.text(cx - 180, controlsY + 72, 'F', keyStyle);
+    this.add.text(cx + 50, controlsY + 72, 'Drink Potion', controlStyle);
+    drawPotion(guideG, cx + 138, controlsY + 80, 12);
 
     // Decorative zombies on sides
     const decoG = this.add.graphics();
     // Zombie on left
     decoG.fillStyle(COLORS.ZOMBIE, 1);
-    decoG.fillRoundedRect(60, cy + 80, 26, 28, 5);
+    decoG.fillRoundedRect(50, cy + 60, 26, 28, 5);
     decoG.fillStyle(0xFFFFFF, 0.7);
-    decoG.fillCircle(67, cy + 87, 4);
-    decoG.fillCircle(79, cy + 87, 4);
+    decoG.fillCircle(57, cy + 67, 4);
+    decoG.fillCircle(69, cy + 67, 4);
     decoG.fillStyle(0x222222, 1);
-    decoG.fillCircle(67, cy + 88, 2);
-    decoG.fillCircle(80, cy + 87, 1.5);
+    decoG.fillCircle(57, cy + 68, 2);
+    decoG.fillCircle(70, cy + 67, 1.5);
     decoG.fillStyle(0x333333, 1);
-    decoG.fillEllipse(73, cy + 96, 8, 5);
-    // Jail bars behind zombie
+    decoG.fillEllipse(63, cy + 76, 8, 5);
     decoG.fillStyle(COLORS.JAIL_BAR, 0.4);
     for (let b = 0; b < 4; b++) {
-      decoG.fillRect(45 + b * 18, cy + 65, 3, 55);
+      decoG.fillRect(35 + b * 18, cy + 45, 3, 55);
     }
 
     // Zombie on right
     decoG.fillStyle(COLORS.ZOMBIE, 1);
-    decoG.fillRoundedRect(710, cy + 85, 26, 28, 5);
+    decoG.fillRoundedRect(720, cy + 65, 26, 28, 5);
     decoG.fillStyle(0xFFFFFF, 0.7);
-    decoG.fillCircle(717, cy + 92, 4);
-    decoG.fillCircle(729, cy + 92, 4);
+    decoG.fillCircle(727, cy + 72, 4);
+    decoG.fillCircle(739, cy + 72, 4);
     decoG.fillStyle(0x222222, 1);
-    decoG.fillCircle(717, cy + 93, 2);
-    decoG.fillCircle(730, cy + 92, 1.5);
+    decoG.fillCircle(727, cy + 73, 2);
+    decoG.fillCircle(740, cy + 72, 1.5);
     decoG.fillStyle(0x333333, 1);
-    decoG.fillEllipse(723, cy + 101, 8, 5);
-    // Jail bars behind zombie
+    decoG.fillEllipse(733, cy + 81, 8, 5);
     decoG.fillStyle(COLORS.JAIL_BAR, 0.4);
     for (let b = 0; b < 4; b++) {
-      decoG.fillRect(700 + b * 18, cy + 70, 3, 55);
+      decoG.fillRect(710 + b * 18, cy + 50, 3, 55);
     }
 
     // Big pulsing play button
-    const btnY = cy + 190;
+    const btnY = cy + 170;
     this.playBtn = this.add.graphics();
     this.playBtn.fillStyle(0x44CC44, 1);
-    this.playBtn.fillCircle(cx, btnY, 36);
+    this.playBtn.fillCircle(cx, btnY, 34);
     this.playBtn.fillStyle(0xFFFFFF, 1);
-    this.playBtn.fillTriangle(cx - 12, btnY - 16, cx - 12, btnY + 16, cx + 18, btnY);
+    this.playBtn.fillTriangle(cx - 10, btnY - 14, cx - 10, btnY + 14, cx + 16, btnY);
+
+    this.add.text(cx, btnY + 46, 'Press SPACE to play', {
+      fontSize: '13px', fontFamily: 'Arial, sans-serif', fill: '#666666'
+    }).setOrigin(0.5);
 
     this.tweens.add({
       targets: this.playBtn, scaleX: 1.12, scaleY: 1.12,
