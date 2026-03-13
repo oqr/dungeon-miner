@@ -1,0 +1,3337 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Dungeon Miner</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    background: #1a1a2e;
+    overflow: hidden;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    height: 100vh;
+  }
+  #game-container { position: relative; }
+  canvas { display: block; image-rendering: pixelated; }
+</style>
+<script src="https://cdn.jsdelivr.net/npm/phaser@3.60.0/dist/phaser.min.js"></script>
+</head>
+<body>
+<div id="game-container"></div>
+<script>
+// ============================================================
+// DUNGEON MINER - Kid-Friendly Edition (Ages 4-5)
+// 100% visual, no reading required during gameplay
+// ============================================================
+
+const TILE_SIZE = 40;
+const MAP_W = 32;
+const MAP_H = 24;
+const TILE = {
+  FLOOR: 0, WALL: 1, ROCK: 2, ORE_COPPER: 3, ORE_IRON: 4, ORE_GOLD: 5,
+  STAIRS: 6, STORE: 7, JAIL_BAR: 8, ORE_DIAMOND: 9, PRISONER: 10
+};
+const TILE_HP = { [TILE.ROCK]: 1, [TILE.ORE_COPPER]: 1, [TILE.ORE_IRON]: 2, [TILE.ORE_GOLD]: 2, [TILE.JAIL_BAR]: 5, [TILE.ORE_DIAMOND]: 3 };
+const COLORS = {
+  FLOOR: 0xC4A882, WALL: 0x5C5470, ROCK: 0x8B7355,
+  ORE_COPPER: 0xE87D3E, ORE_IRON: 0xB0C4DE, ORE_GOLD: 0xFFD700,
+  STAIRS: 0x6A5ACD, STORE: 0x3CB371, JAIL_BAR: 0x888888,
+  JAIL_FLOOR: 0x7A7062,
+  PLAYER: 0x4A9FFF, SLIME: 0x66DD66, SKELETON: 0xDDDDDD, DEMON: 0xCC66FF,
+  ZOMBIE: 0x6B8E5A, ORE_DIAMOND: 0xAADDFF, PRISONER: 0xFFAA66,
+  DIAMOND_SWORD: 0xBBEEFF, MOONSTONE: 0xCCBBFF,
+  HEART_FULL: 0xFF4466, HEART_EMPTY: 0x555555,
+  COIN: 0xFFD700, COIN_DARK: 0xCC9900
+};
+
+// Biome themes: jail(1), dungeon(2-5), forest(6-10), ice(11-15), sand(16-20), final jail(21)
+const FINAL_FLOOR = 21;
+function getBiome(floor) {
+  if (floor === 1) return 'jail';
+  if (floor <= 5) return 'dungeon';
+  if (floor <= 10) return 'forest';
+  if (floor <= 15) return 'ice';
+  if (floor <= 20) return 'sand';
+  return 'finaljail';
+}
+
+const BIOME_COLORS = {
+  jail: {
+    bg: '#1a1a2e',
+    FLOOR: 0x7A7062, WALL: 0x5C5470, ROCK: 0x8B7355,
+    floorAccent1: 0x000000, floorAccent2: 0xFFFFFF,
+    wallAccent: 0x4A4460, wallEdge: 0x3A3450
+  },
+  dungeon: {
+    bg: '#1a1a2e',
+    FLOOR: 0xC4A882, WALL: 0x5C5470, ROCK: 0x8B7355,
+    floorAccent1: 0x000000, floorAccent2: 0xFFFFFF,
+    wallAccent: 0x4A4460, wallEdge: 0x3A3450
+  },
+  forest: {
+    bg: '#1a2e1a',
+    FLOOR: 0x6B8E4E, WALL: 0x3D5C2E, ROCK: 0x7A7355,
+    floorAccent1: 0x4A6B30, floorAccent2: 0x8BAE60,
+    wallAccent: 0x2E4A1E, wallEdge: 0x1E3A10
+  },
+  ice: {
+    bg: '#1a2a3e',
+    FLOOR: 0xB8D4E8, WALL: 0x6888A8, ROCK: 0x99AACC,
+    floorAccent1: 0x8AB8D8, floorAccent2: 0xD8EEFF,
+    wallAccent: 0x5878A0, wallEdge: 0x486898
+  },
+  sand: {
+    bg: '#2e2816',
+    FLOOR: 0xD4B87A, WALL: 0x8B7340, ROCK: 0xAA9060,
+    floorAccent1: 0xC4A050, floorAccent2: 0xE8D098,
+    wallAccent: 0x7A6330, wallEdge: 0x6A5320
+  },
+  finaljail: {
+    bg: '#1a0a0a',
+    FLOOR: 0x6A5A52, WALL: 0x4A3A32, ROCK: 0x7A6A55,
+    floorAccent1: 0x000000, floorAccent2: 0x443333,
+    wallAccent: 0x3A2A22, wallEdge: 0x2A1A12
+  }
+};
+
+// Pickaxes: power = mining damage per hit
+const PICKAXES = [
+  { power: 1, cost: 0, color: 0x8B6914 },       // wood (never used, start at stone)
+  { power: 2, cost: 0, color: 0x999999 },        // stone (starting)
+  { power: 3, cost: 50, color: 0xB0C4DE },       // iron
+  { power: 5, cost: 120, color: 0xFFD700 }       // gold
+];
+const SWORDS = [
+  { damage: 5, cost: 0, color: 0x8B6914 },        // wood (never used)
+  { damage: 10, cost: 0, color: 0x999999 },       // stone (starting)
+  { damage: 18, cost: 60, color: 0xB0C4DE },      // iron
+  { damage: 30, cost: 150, color: 0xFFD700 },     // gold
+  { damage: 45, cost: 300, color: 0xFF4444 },     // ruby (red)
+  { damage: 60, cost: 500, color: 0x44FFFF },     // crystal (cyan)
+  { damage: 80, cost: 800, color: 0xBB66FF },     // amethyst (purple)
+  { damage: 110, cost: 1200, color: 0xFF66AA },   // rose quartz (pink)
+  { damage: 150, cost: 1800, color: 0x44FF88 },   // emerald (green)
+  { damage: 200, cost: 2500, color: 0xFFFFFF }    // starlight (white)
+];
+const ARMOR = [
+  { defense: 0, cost: 0, color: 0x8B6914 },       // none (starting)
+  { defense: 1, cost: 80, color: 0x999999 },       // leather (gray)
+  { defense: 2, cost: 180, color: 0xB0C4DE },      // iron (silver)
+  { defense: 3, cost: 350, color: 0xFFD700 },      // gold
+  { defense: 4, cost: 600, color: 0xFF4444 },      // ruby (red)
+  { defense: 5, cost: 900, color: 0x44FFFF },      // crystal (cyan)
+  { defense: 7, cost: 1400, color: 0xBB66FF },     // amethyst (purple)
+  { defense: 10, cost: 2000, color: 0xFFFFFF }     // starlight (white)
+];
+const SELL_PRICES = { stone: 2, copper: 5, iron: 12, gold: 30 };
+const POTION_COST = 12;
+const POTION_HEAL = 4; // heals 4 hearts (out of 5 max)
+
+const gameState = {
+  floor: 1,
+  coins: 0,
+  hp: 10,      // 5 hearts = 10 hp (2 hp per heart)
+  maxHp: 10,
+  inventory: { stone: 0, copper: 0, iron: 0, gold: 0, potions: 1 },
+  pickaxeLevel: 1,  // start with stone
+  swordLevel: 1,    // start with stone
+  armorLevel: 0,    // start with no armor
+  diamondSword: false,
+  diamondSwingsLeft: 0,
+  facing: 'down',
+  attackCooldown: 0,
+  invincibleTimer: 0,
+  score: 0,
+  dead: false,
+  regenTimer: 0
+};
+
+// ===== DUNGEON GENERATION =====
+function generateDungeon(floor) {
+  const map = [];
+  const tileHp = [];
+  for (let y = 0; y < MAP_H; y++) {
+    map[y] = [];
+    tileHp[y] = [];
+    for (let x = 0; x < MAP_W; x++) {
+      map[y][x] = TILE.WALL;
+      tileHp[y][x] = 0;
+    }
+  }
+
+  const rooms = [];
+  const numRooms = 5 + Math.floor(Math.random() * 3) + Math.min(floor, 4);
+
+  for (let i = 0; i < numRooms * 12 && rooms.length < numRooms; i++) {
+    const w = 5 + Math.floor(Math.random() * 5);
+    const h = 4 + Math.floor(Math.random() * 4);
+    const x = 2 + Math.floor(Math.random() * (MAP_W - w - 4));
+    const y = 2 + Math.floor(Math.random() * (MAP_H - h - 4));
+
+    let overlap = false;
+    for (const r of rooms) {
+      if (x - 1 < r.x + r.w && x + w + 1 > r.x && y - 1 < r.y + r.h && y + h + 1 > r.y) {
+        overlap = true; break;
+      }
+    }
+    if (!overlap) {
+      rooms.push({ x, y, w, h });
+      for (let ry = y; ry < y + h; ry++) {
+        for (let rx = x; rx < x + w; rx++) {
+          map[ry][rx] = TILE.FLOOR;
+        }
+      }
+    }
+  }
+
+  // Connect rooms
+  for (let i = 1; i < rooms.length; i++) {
+    const a = { x: Math.floor(rooms[i-1].x + rooms[i-1].w/2), y: Math.floor(rooms[i-1].y + rooms[i-1].h/2) };
+    const b = { x: Math.floor(rooms[i].x + rooms[i].w/2), y: Math.floor(rooms[i].y + rooms[i].h/2) };
+    let cx = a.x, cy = a.y;
+    while (cx !== b.x) {
+      map[cy][cx] = TILE.FLOOR;
+      if (cy > 0) map[cy-1][cx] = map[cy-1][cx] === TILE.WALL ? TILE.FLOOR : map[cy-1][cx];
+      if (cy < MAP_H-1) map[cy+1][cx] = map[cy+1][cx] === TILE.WALL ? TILE.FLOOR : map[cy+1][cx];
+      cx += cx < b.x ? 1 : -1;
+    }
+    while (cy !== b.y) {
+      map[cy][cx] = TILE.FLOOR;
+      if (cx > 0) map[cy][cx-1] = map[cy][cx-1] === TILE.WALL ? TILE.FLOOR : map[cy][cx-1];
+      if (cx < MAP_W-1) map[cy][cx+1] = map[cy][cx+1] === TILE.WALL ? TILE.FLOOR : map[cy][cx+1];
+      cy += cy < b.y ? 1 : -1;
+    }
+  }
+
+  // Place rocks and ore
+  for (let y = 1; y < MAP_H - 1; y++) {
+    for (let x = 1; x < MAP_W - 1; x++) {
+      if (map[y][x] === TILE.FLOOR) {
+        const adjWall = [map[y-1][x], map[y+1][x], map[y][x-1], map[y][x+1]].some(t => t === TILE.WALL);
+        if (adjWall && Math.random() < 0.22) {
+          const r = Math.random();
+          if (floor >= 5 && r < 0.15) { map[y][x] = TILE.ORE_GOLD; }
+          else if (floor >= 3 && r < 0.3) { map[y][x] = TILE.ORE_IRON; }
+          else if (r < 0.5) { map[y][x] = TILE.ORE_COPPER; }
+          else { map[y][x] = TILE.ROCK; }
+          tileHp[y][x] = TILE_HP[map[y][x]] || 1;
+        }
+      }
+    }
+  }
+
+  // Stairs in last room
+  const lastRoom = rooms[rooms.length - 1];
+  const stairsX = Math.floor(lastRoom.x + lastRoom.w / 2);
+  const stairsY = Math.floor(lastRoom.y + lastRoom.h / 2);
+  map[stairsY][stairsX] = TILE.STAIRS;
+
+  // Store in first room
+  const firstRoom = rooms[0];
+  const storeX = firstRoom.x + 1;
+  const storeY = firstRoom.y + 1;
+  map[storeY][storeX] = TILE.STORE;
+
+  // Diamond ore: one per level, hidden in a random room (not first or last)
+  if (rooms.length > 2) {
+    const dRoomIdx = 1 + Math.floor(Math.random() * (rooms.length - 2));
+    const dRoom = rooms[dRoomIdx];
+    // Place near a wall for that hidden feel
+    let placed = false;
+    for (let tries = 0; tries < 20 && !placed; tries++) {
+      const dx = dRoom.x + 1 + Math.floor(Math.random() * (dRoom.w - 2));
+      const dy = dRoom.y + 1 + Math.floor(Math.random() * (dRoom.h - 2));
+      if (map[dy][dx] === TILE.FLOOR) {
+        map[dy][dx] = TILE.ORE_DIAMOND;
+        tileHp[dy][dx] = TILE_HP[TILE.ORE_DIAMOND];
+        placed = true;
+      }
+    }
+  }
+
+  const startX = Math.floor(firstRoom.x + firstRoom.w / 2);
+  const startY = Math.floor(firstRoom.y + firstRoom.h / 2);
+
+  // Enemies
+  const enemies = [];
+  const biome = getBiome(floor);
+  const enemyCount = 2 + floor;
+
+  if (biome === 'ice') {
+    // Ice mountain: enemies spawn in tight clusters (groups of 3-4 in a room)
+    // Pick 2-3 rooms and pack enemies into them
+    const availableRooms = rooms.slice(1); // skip first room
+    const clusterCount = Math.min(2 + Math.floor((floor - 10) / 2), availableRooms.length);
+    for (let c = 0; c < clusterCount; c++) {
+      const roomIdx = c % availableRooms.length;
+      const room = availableRooms[roomIdx];
+      const clusterSize = 3 + Math.floor(Math.random() * 2);
+      for (let e = 0; e < clusterSize; e++) {
+        const ex = room.x + 1 + Math.floor(Math.random() * (room.w - 2));
+        const ey = room.y + 1 + Math.floor(Math.random() * (room.h - 2));
+        if (map[ey][ex] === TILE.FLOOR) {
+          const r = Math.random();
+          let type = r < 0.3 ? 'demon' : r < 0.6 ? 'skeleton' : 'zombie';
+          enemies.push({ x: ex, y: ey, type });
+        }
+      }
+    }
+  } else {
+    for (let i = 0; i < enemyCount; i++) {
+      const roomIdx = 1 + Math.floor(Math.random() * (rooms.length - 1));
+      if (roomIdx >= rooms.length) continue;
+      const room = rooms[roomIdx];
+      const ex = room.x + 1 + Math.floor(Math.random() * (room.w - 2));
+      const ey = room.y + 1 + Math.floor(Math.random() * (room.h - 2));
+      if (map[ey][ex] === TILE.FLOOR) {
+        let type = 'slime';
+        if (biome === 'forest') {
+          // Forest: mix of all types
+          const r = Math.random();
+          type = r < 0.3 ? 'slime' : r < 0.6 ? 'skeleton' : r < 0.8 ? 'zombie' : 'demon';
+        } else {
+          if (floor >= 6) type = Math.random() < 0.4 ? 'demon' : 'skeleton';
+          else if (floor >= 3) type = Math.random() < 0.5 ? 'skeleton' : 'slime';
+        }
+        enemies.push({ x: ex, y: ey, type });
+      }
+    }
+  }
+
+  return { map, tileHp, rooms, startX, startY, stairsX, stairsY, enemies };
+}
+
+// ===== JAIL DUNGEON (Floor 1) =====
+function generateJail() {
+  const map = [];
+  const tileHp = [];
+  for (let y = 0; y < MAP_H; y++) {
+    map[y] = [];
+    tileHp[y] = [];
+    for (let x = 0; x < MAP_W; x++) {
+      map[y][x] = TILE.WALL;
+      tileHp[y][x] = 0;
+    }
+  }
+
+  // Layout: a row of jail cells on the left, a big guard room in the middle,
+  // corridors connecting them, and the exit/stairs room on the right.
+
+  // --- Jail cells (3 cells stacked vertically on the left) ---
+  const cells = [
+    { x: 3, y: 3, w: 5, h: 4 },   // cell 0 (player starts here)
+    { x: 3, y: 9, w: 5, h: 4 },   // cell 1
+    { x: 3, y: 15, w: 5, h: 4 },  // cell 2
+  ];
+
+  for (const cell of cells) {
+    for (let cy = cell.y; cy < cell.y + cell.h; cy++) {
+      for (let cx = cell.x; cx < cell.x + cell.w; cx++) {
+        map[cy][cx] = TILE.FLOOR;
+      }
+    }
+  }
+
+  // Jail bars on the right side of each cell (the "door" you mine through)
+  for (const cell of cells) {
+    const barX = cell.x + cell.w; // right edge
+    for (let cy = cell.y; cy < cell.y + cell.h; cy++) {
+      map[cy][barX] = TILE.JAIL_BAR;
+      tileHp[cy][barX] = TILE_HP[TILE.JAIL_BAR];
+    }
+  }
+
+  // --- Main corridor running vertically on the right side of cells ---
+  const corridorX = cells[0].x + cells[0].w + 1;
+  for (let cy = cells[0].y; cy <= cells[2].y + cells[2].h - 1; cy++) {
+    map[cy][corridorX] = TILE.FLOOR;
+    map[cy][corridorX + 1] = TILE.FLOOR;
+  }
+
+  // --- Guard room (big open area in the center-right) ---
+  const guardRoom = { x: 14, y: 5, w: 8, h: 10 };
+  for (let gy = guardRoom.y; gy < guardRoom.y + guardRoom.h; gy++) {
+    for (let gx = guardRoom.x; gx < guardRoom.x + guardRoom.w; gx++) {
+      map[gy][gx] = TILE.FLOOR;
+    }
+  }
+
+  // Corridor from cell corridor to guard room
+  const connY = Math.floor((cells[0].y + cells[2].y + cells[2].h) / 2);
+  for (let cx = corridorX + 2; cx < guardRoom.x; cx++) {
+    map[connY][cx] = TILE.FLOOR;
+    map[connY + 1][cx] = TILE.FLOOR;
+  }
+
+  // --- Exit room (where stairs are) ---
+  const exitRoom = { x: 25, y: 8, w: 5, h: 6 };
+  for (let ey = exitRoom.y; ey < exitRoom.y + exitRoom.h; ey++) {
+    for (let ex = exitRoom.x; ex < exitRoom.x + exitRoom.w; ex++) {
+      map[ey][ex] = TILE.FLOOR;
+    }
+  }
+
+  // Corridor from guard room to exit room
+  const exitConnY = Math.floor(guardRoom.y + guardRoom.h / 2);
+  for (let cx = guardRoom.x + guardRoom.w; cx < exitRoom.x; cx++) {
+    map[exitConnY][cx] = TILE.FLOOR;
+    map[exitConnY + 1][cx] = TILE.FLOOR;
+  }
+
+  // Place some rocks/ore in the guard room and corridors
+  const oreSpots = [
+    [guardRoom.x + 1, guardRoom.y + 1],
+    [guardRoom.x + 6, guardRoom.y + 2],
+    [guardRoom.x + 2, guardRoom.y + 7],
+    [guardRoom.x + 5, guardRoom.y + 8],
+    [corridorX, cells[1].y - 1] // near corridor
+  ];
+  for (const [ox, oy] of oreSpots) {
+    if (map[oy] && map[oy][ox] === TILE.FLOOR) {
+      const r = Math.random();
+      if (r < 0.4) { map[oy][ox] = TILE.ORE_COPPER; }
+      else { map[oy][ox] = TILE.ROCK; }
+      tileHp[oy][ox] = TILE_HP[map[oy][ox]];
+    }
+  }
+
+  // Stairs in exit room
+  const stairsX = Math.floor(exitRoom.x + exitRoom.w / 2);
+  const stairsY = Math.floor(exitRoom.y + exitRoom.h / 2);
+  map[stairsY][stairsX] = TILE.STAIRS;
+
+  // Store in guard room
+  map[guardRoom.y + 1][guardRoom.x + guardRoom.w - 2] = TILE.STORE;
+
+  // Player starts in cell 0
+  const startX = cells[0].x + 2;
+  const startY = cells[0].y + 2;
+
+  // Enemies: zombies in the corridor, guard room, other cells, and exit room
+  const enemies = [];
+  // Zombies in the corridor (right outside cells)
+  enemies.push({ x: corridorX, y: cells[0].y + 2, type: 'zombie' });
+  enemies.push({ x: corridorX + 1, y: cells[2].y + 1, type: 'zombie' });
+  // Zombies inside other cells
+  enemies.push({ x: cells[1].x + 2, y: cells[1].y + 2, type: 'zombie' });
+  enemies.push({ x: cells[2].x + 1, y: cells[2].y + 1, type: 'zombie' });
+  // Zombies in guard room
+  enemies.push({ x: guardRoom.x + 3, y: guardRoom.y + 3, type: 'zombie' });
+  enemies.push({ x: guardRoom.x + 5, y: guardRoom.y + 6, type: 'zombie' });
+  // Zombie guarding exit
+  enemies.push({ x: exitRoom.x + 2, y: exitRoom.y + 2, type: 'zombie' });
+
+  const rooms = [cells[0], cells[1], cells[2], guardRoom, exitRoom];
+  return { map, tileHp, rooms, startX, startY, stairsX, stairsY, enemies, isJail: true };
+}
+
+// ===== FINAL JAIL (Floor 21) - Rescue the prisoners! =====
+function generateFinalJail() {
+  const map = [];
+  const tileHp = [];
+  for (let y = 0; y < MAP_H; y++) {
+    map[y] = [];
+    tileHp[y] = [];
+    for (let x = 0; x < MAP_W; x++) {
+      map[y][x] = TILE.WALL;
+      tileHp[y][x] = 0;
+    }
+  }
+
+  // Big layout: 6 cells (3 on each side), central corridor, guard posts
+  // Left cells
+  const leftCells = [
+    { x: 2, y: 2, w: 5, h: 4 },
+    { x: 2, y: 8, w: 5, h: 4 },
+    { x: 2, y: 14, w: 5, h: 4 },
+  ];
+  // Right cells
+  const rightCells = [
+    { x: 25, y: 2, w: 5, h: 4 },
+    { x: 25, y: 8, w: 5, h: 4 },
+    { x: 25, y: 14, w: 5, h: 4 },
+  ];
+  const allCells = [...leftCells, ...rightCells];
+
+  // Carve all cells
+  for (const cell of allCells) {
+    for (let cy = cell.y; cy < cell.y + cell.h; cy++) {
+      for (let cx = cell.x; cx < cell.x + cell.w; cx++) {
+        map[cy][cx] = TILE.FLOOR;
+      }
+    }
+  }
+
+  // Jail bars on the inner side of each cell
+  for (const cell of leftCells) {
+    const barX = cell.x + cell.w;
+    for (let cy = cell.y; cy < cell.y + cell.h; cy++) {
+      map[cy][barX] = TILE.JAIL_BAR;
+      tileHp[cy][barX] = TILE_HP[TILE.JAIL_BAR];
+    }
+  }
+  for (const cell of rightCells) {
+    const barX = cell.x - 1;
+    for (let cy = cell.y; cy < cell.y + cell.h; cy++) {
+      map[cy][barX] = TILE.JAIL_BAR;
+      tileHp[cy][barX] = TILE_HP[TILE.JAIL_BAR];
+    }
+  }
+
+  // Central corridor (wide) - extends to meet jail bars on both sides
+  for (let cy = 1; cy < MAP_H - 1; cy++) {
+    for (let cx = 8; cx <= 23; cx++) {
+      map[cy][cx] = TILE.FLOOR;
+    }
+  }
+
+  // Put a prisoner in each cell (center of cell)
+  const prisonerPositions = [];
+  for (const cell of allCells) {
+    const px = Math.floor(cell.x + cell.w / 2);
+    const py = Math.floor(cell.y + cell.h / 2);
+    map[py][px] = TILE.PRISONER;
+    prisonerPositions.push({ x: px, y: py });
+  }
+
+  // Store in center of corridor
+  map[10][16] = TILE.STORE;
+
+  // Some rocks/ore in the corridor
+  const oreSpots = [
+    [10, 3], [12, 5], [14, 2], [18, 4], [20, 6],
+    [11, 16], [13, 18], [19, 15], [21, 17], [15, 19]
+  ];
+  for (const [ox, oy] of oreSpots) {
+    if (map[oy] && map[oy][ox] === TILE.FLOOR) {
+      const r = Math.random();
+      if (r < 0.3) { map[oy][ox] = TILE.ORE_GOLD; }
+      else if (r < 0.6) { map[oy][ox] = TILE.ORE_IRON; }
+      else { map[oy][ox] = TILE.ROCK; }
+      tileHp[oy][ox] = TILE_HP[map[oy][ox]] || 1;
+    }
+  }
+
+  // Player starts in the middle of the corridor
+  const startX = 15;
+  const startY = 11;
+
+  // Lots of tough zombies throughout the corridor
+  const enemies = [];
+  const zombiePositions = [
+    [10, 4], [12, 8], [11, 14], [20, 3], [19, 9], [21, 15],
+    [14, 6], [16, 12], [18, 8], [13, 2], [17, 16], [15, 4],
+    [12, 18], [19, 18], [14, 10]
+  ];
+  for (const [zx, zy] of zombiePositions) {
+    if (map[zy] && map[zy][zx] === TILE.FLOOR) {
+      const r = Math.random();
+      const type = r < 0.5 ? 'zombie' : r < 0.8 ? 'demon' : 'skeleton';
+      enemies.push({ x: zx, y: zy, type });
+    }
+  }
+
+  const rooms = [...allCells, { x: 9, y: 1, w: 14, h: MAP_H - 2 }];
+  return {
+    map, tileHp, rooms, startX, startY,
+    stairsX: -1, stairsY: -1, // no stairs on final level
+    enemies, isFinalJail: true,
+    prisonerCount: allCells.length,
+    prisonerPositions
+  };
+}
+
+// ===== ENEMY STATS (easier for kids) =====
+function getEnemyStats(type, floor) {
+  const base = {
+    zombie:   { hp: 15, damage: 1, speed: 30, coins: 4, color: COLORS.ZOMBIE },
+    slime:    { hp: 10, damage: 1, speed: 35, coins: 3, color: COLORS.SLIME },
+    skeleton: { hp: 20, damage: 2, speed: 45, coins: 5, color: COLORS.SKELETON },
+    demon:    { hp: 30, damage: 2, speed: 50, coins: 8, color: COLORS.DEMON }
+  };
+  const s = base[type] || base.slime;
+  // Stronger scaling: 25% per floor for HP, 20% for damage, speeds up slightly
+  // Final jail (floor 21) gets a massive bonus - 2.5x HP, 2x damage, much faster
+  const isFinal = (floor === FINAL_FLOOR);
+  const scale = isFinal ? 1 + (floor - 1) * 0.25 * 2.5 : 1 + (floor - 1) * 0.25;
+  const dmgScale = isFinal ? 1 + (floor - 1) * 0.2 * 2 : 1 + (floor - 1) * 0.2;
+  const speedBoost = isFinal ? 35 : Math.min(floor * 1.5, 20);
+
+  // Biome-tinted colors
+  const biome = getBiome(floor);
+  const biomeColorTint = {
+    jail:    { zombie: 0x6B8E5A, slime: 0x66DD66, skeleton: 0xDDDDDD, demon: 0xCC66FF },
+    dungeon: { zombie: 0x6B8E5A, slime: 0x66DD66, skeleton: 0xDDDDDD, demon: 0xCC66FF },
+    forest:  { zombie: 0x4A7A3A, slime: 0x44BB44, skeleton: 0xAACC99, demon: 0x8844AA },
+    ice:     { zombie: 0x7A9AAA, slime: 0x88CCEE, skeleton: 0xCCDDEE, demon: 0x9988DD },
+    sand:    { zombie: 0x8A7A4A, slime: 0xBBAA55, skeleton: 0xDDCC99, demon: 0xAA6644 },
+    finaljail: { zombie: 0x5A3A2A, slime: 0x44AA44, skeleton: 0xBBAAAA, demon: 0xAA3355 }
+  };
+  const tints = biomeColorTint[biome] || biomeColorTint.dungeon;
+
+  return {
+    hp: Math.floor(s.hp * scale),
+    maxHp: Math.floor(s.hp * scale),
+    damage: Math.max(1, Math.floor(s.damage * dmgScale)),
+    speed: s.speed + speedBoost,
+    coins: Math.floor(s.coins * (1 + (floor-1)*0.3)),
+    color: tints[type] || s.color,
+    type
+  };
+}
+
+// ===== DRAWING HELPERS =====
+function drawHeart(g, x, y, size, filled) {
+  g.fillStyle(filled ? COLORS.HEART_FULL : COLORS.HEART_EMPTY, 1);
+  const s = size;
+  // Two circles for top of heart + triangle for bottom
+  g.fillCircle(x - s*0.25, y - s*0.1, s*0.32);
+  g.fillCircle(x + s*0.25, y - s*0.1, s*0.32);
+  g.fillTriangle(x - s*0.52, y, x + s*0.52, y, x, y + s*0.52);
+  if (filled) {
+    // highlight
+    g.fillStyle(0xFFFFFF, 0.3);
+    g.fillCircle(x - s*0.25, y - s*0.18, s*0.12);
+  }
+}
+
+function drawCoin(g, x, y, size) {
+  g.fillStyle(COLORS.COIN, 1);
+  g.fillCircle(x, y, size);
+  g.fillStyle(COLORS.COIN_DARK, 1);
+  g.fillCircle(x, y, size * 0.55);
+  g.fillStyle(COLORS.COIN, 1);
+  g.fillCircle(x, y, size * 0.4);
+}
+
+function drawPickaxe(g, x, y, size, color) {
+  // Handle
+  g.lineStyle(3, 0x8B6914, 1);
+  g.lineBetween(x - size*0.4, y + size*0.4, x + size*0.2, y - size*0.2);
+  // Head
+  g.fillStyle(color, 1);
+  g.fillRect(x - size*0.1, y - size*0.5, size*0.6, size*0.22);
+  // Point
+  g.fillTriangle(x + size*0.5, y - size*0.5, x + size*0.7, y - size*0.28, x + size*0.5, y - size*0.28);
+}
+
+function drawSword(g, x, y, size, color) {
+  // Blade
+  g.fillStyle(color, 1);
+  g.fillRect(x - 2, y - size*0.55, 4, size*0.65);
+  // Tip
+  g.fillTriangle(x - 3, y - size*0.55, x + 3, y - size*0.55, x, y - size*0.75);
+  // Guard
+  g.fillStyle(0x8B6914, 1);
+  g.fillRect(x - size*0.25, y + size*0.08, size*0.5, 4);
+  // Handle
+  g.fillStyle(0x654321, 1);
+  g.fillRect(x - 2, y + size*0.12, 4, size*0.22);
+}
+
+function drawShield(g, x, y, size, color) {
+  // Shield / armor icon shape
+  g.fillStyle(color, 1);
+  // Main shield body (rounded top, pointed bottom)
+  g.fillRoundedRect(x - size*0.35, y - size*0.4, size*0.7, size*0.5, 4);
+  g.fillTriangle(x - size*0.35, y + size*0.05, x + size*0.35, y + size*0.05, x, y + size*0.5);
+  // Inner highlight
+  g.fillStyle(0xFFFFFF, 0.25);
+  g.fillRoundedRect(x - size*0.2, y - size*0.3, size*0.4, size*0.3, 3);
+  // Border
+  g.lineStyle(2, 0x000000, 0.3);
+  g.strokeRoundedRect(x - size*0.35, y - size*0.4, size*0.7, size*0.5, 4);
+}
+
+function drawPotion(g, x, y, size) {
+  // Bottle body
+  g.fillStyle(0xFF4466, 0.9);
+  g.fillRoundedRect(x - size*0.3, y - size*0.15, size*0.6, size*0.55, 4);
+  // Neck
+  g.fillStyle(0xCCCCCC, 1);
+  g.fillRect(x - size*0.12, y - size*0.38, size*0.24, size*0.25);
+  // Cork
+  g.fillStyle(0x8B6914, 1);
+  g.fillRect(x - size*0.14, y - size*0.45, size*0.28, size*0.1);
+  // Highlight
+  g.fillStyle(0xFFFFFF, 0.4);
+  g.fillRect(x - size*0.18, y - size*0.08, size*0.12, size*0.3);
+}
+
+function drawDownArrow(g, x, y, size) {
+  g.fillStyle(0xBBBBFF, 1);
+  g.fillRect(x - size*0.15, y - size*0.35, size*0.3, size*0.4);
+  g.fillTriangle(x - size*0.35, y + size*0.05, x + size*0.35, y + size*0.05, x, y + size*0.45);
+}
+
+function drawOreIcon(g, x, y, size, type) {
+  const colors = { stone: 0x8B7355, copper: 0xE87D3E, iron: 0xB0C4DE, gold: 0xFFD700 };
+  const c = colors[type] || 0xFFFFFF;
+  g.fillStyle(c, 1);
+  if (type === 'gold') {
+    // Star shape for gold
+    drawStar(g, x, y, size * 0.45, size * 0.25, 5);
+  } else {
+    // Diamond shape
+    g.fillTriangle(x, y - size*0.4, x - size*0.3, y, x + size*0.3, y);
+    g.fillTriangle(x - size*0.3, y, x + size*0.3, y, x, y + size*0.4);
+  }
+  // Shine
+  g.fillStyle(0xFFFFFF, 0.35);
+  g.fillCircle(x - size*0.08, y - size*0.12, size*0.08);
+}
+
+function drawStar(g, x, y, outerR, innerR, points) {
+  const verts = [];
+  for (let i = 0; i < points * 2; i++) {
+    const angle = (i * Math.PI / points) - Math.PI / 2;
+    const r = i % 2 === 0 ? outerR : innerR;
+    verts.push(x + Math.cos(angle) * r);
+    verts.push(y + Math.sin(angle) * r);
+  }
+  // Draw as triangles from center
+  for (let i = 0; i < verts.length - 2; i += 2) {
+    const ni = (i + 2) % verts.length;
+    g.fillTriangle(x, y, verts[i], verts[i+1], verts[ni], verts[ni+1]);
+  }
+}
+
+function drawCheckmark(g, x, y, size) {
+  g.lineStyle(4, 0x44FF44, 1);
+  g.lineBetween(x - size*0.3, y, x - size*0.05, y + size*0.3);
+  g.lineBetween(x - size*0.05, y + size*0.3, x + size*0.35, y - size*0.25);
+}
+
+function drawXmark(g, x, y, size) {
+  g.lineStyle(3, 0xFF4444, 1);
+  g.lineBetween(x - size*0.25, y - size*0.25, x + size*0.25, y + size*0.25);
+  g.lineBetween(x + size*0.25, y - size*0.25, x - size*0.25, y + size*0.25);
+}
+
+function drawArrowRight(g, x, y, size) {
+  g.fillStyle(0xFFFFFF, 0.8);
+  g.fillRect(x - size*0.35, y - size*0.1, size*0.5, size*0.2);
+  g.fillTriangle(x + size*0.15, y - size*0.25, x + size*0.15, y + size*0.25, x + size*0.45, y);
+}
+
+// ============================================================
+// GAME SCENE
+// ============================================================
+class GameScene extends Phaser.Scene {
+  constructor() { super('GameScene'); }
+
+  create() {
+    // Set biome based on floor
+    this.biome = getBiome(gameState.floor);
+    this.biomeColors = BIOME_COLORS[this.biome] || BIOME_COLORS.dungeon;
+    this.cameras.main.setBackgroundColor(this.biomeColors.bg);
+
+    gameState.dead = false;
+    gameState.attackCooldown = 0;
+    gameState.invincibleTimer = 0;
+    gameState.regenTimer = 0;
+
+    // Generate dungeon
+    let dungeon;
+    if (gameState.floor === 1) dungeon = generateJail();
+    else if (gameState.floor === FINAL_FLOOR) dungeon = generateFinalJail();
+    else dungeon = generateDungeon(gameState.floor);
+    this.dungeon = dungeon;
+    this.mapData = dungeon.map;
+    this.tileHpData = dungeon.tileHp;
+    this.isFinalJail = dungeon.isFinalJail || false;
+    this.prisonersToFree = dungeon.isFinalJail ? dungeon.prisonerCount : 0;
+    this.prisonersFreed = 0;
+
+    // Draw tiles
+    this.tileGraphics = this.add.group();
+    this.tileSprites = [];
+    for (let y = 0; y < MAP_H; y++) {
+      this.tileSprites[y] = [];
+      for (let x = 0; x < MAP_W; x++) {
+        const g = this.add.graphics();
+        this.drawTile(g, x, y);
+        this.tileSprites[y][x] = g;
+        this.tileGraphics.add(g);
+      }
+    }
+
+    // Create player (bigger, cuter)
+    this.player = this.add.container(
+      dungeon.startX * TILE_SIZE + TILE_SIZE / 2,
+      dungeon.startY * TILE_SIZE + TILE_SIZE / 2
+    );
+    const body = this.add.graphics();
+    this.drawPlayerBody(body);
+    this.player.add(body);
+    this.player.setDepth(10);
+    this.playerBody = body;
+
+    this.playerGridX = dungeon.startX;
+    this.playerGridY = dungeon.startY;
+    this.playerMoveTimer = 0;
+
+    // Enemies
+    this.enemies = [];
+    for (const e of dungeon.enemies) {
+      this.createEnemy(e.x, e.y, e.type);
+    }
+
+    // Attack visual
+    this.attackSwing = this.add.graphics();
+    this.attackSwing.setDepth(15);
+    this.attackSwing.setVisible(false);
+
+    this.particles = [];
+
+    // Butterfly companion (one per level)
+    this.createButterfly();
+
+    // Input
+    this.cursors = this.input.keyboard.createCursorKeys();
+    this.wasd = {
+      W: this.input.keyboard.addKey('W'),
+      A: this.input.keyboard.addKey('A'),
+      S: this.input.keyboard.addKey('S'),
+      D: this.input.keyboard.addKey('D')
+    };
+    this.spaceKey = this.input.keyboard.addKey('SPACE');
+    this.eKey = this.input.keyboard.addKey('E');
+    this.fKey = this.input.keyboard.addKey('F');
+    this.escKey = this.input.keyboard.addKey('ESC');
+
+    // Camera
+    this.cameras.main.startFollow(this.player, true, 0.12, 0.12);
+    this.cameras.main.setZoom(1.15);
+
+    // HUD
+    this.createHUD();
+
+    // Store state
+    this.storeOpen = false;
+    this.storeUI = null;
+    this.storeSelectionIndex = 0;
+    this.storeSection = 'buy'; // 'buy' or 'sell'
+
+    // Show floor indicator
+    this.showFloorIndicator();
+
+    // Bounce animation for player
+    this.playerBounce = 0;
+  }
+
+  drawPlayerBody(g) {
+    g.clear();
+    // Body (round, friendly)
+    g.fillStyle(COLORS.PLAYER, 1);
+    g.fillRoundedRect(-16, -16, 32, 32, 8);
+    // Armor overlay on body (colored border/chest plate)
+    if (gameState.armorLevel > 0) {
+      const armorColor = ARMOR[gameState.armorLevel].color;
+      g.fillStyle(armorColor, 0.5);
+      g.fillRoundedRect(-14, -2, 28, 16, 4);
+      g.lineStyle(2, armorColor, 0.8);
+      g.strokeRoundedRect(-16, -16, 32, 32, 8);
+    }
+    // Lighter belly
+    g.fillStyle(0x7BBFFF, gameState.armorLevel > 0 ? 0.4 : 1);
+    g.fillRoundedRect(-10, 2, 20, 12, 4);
+    // Eyes (big, friendly)
+    g.fillStyle(0xFFFFFF, 1);
+    g.fillCircle(-6, -5, 6);
+    g.fillCircle(6, -5, 6);
+    // Pupils
+    g.fillStyle(0x222244, 1);
+    g.fillCircle(-5, -4, 3);
+    g.fillCircle(7, -4, 3);
+    // Eye highlights
+    g.fillStyle(0xFFFFFF, 1);
+    g.fillCircle(-3, -6, 1.5);
+    g.fillCircle(9, -6, 1.5);
+    // Smile
+    g.lineStyle(2, 0x222244, 1);
+    g.beginPath();
+    g.arc(0, 0, 6, 0.2, Math.PI - 0.2, false);
+    g.strokePath();
+  }
+
+  showFloorIndicator() {
+    const container = this.add.container(this.cameras.main.centerX, this.cameras.main.centerY - 60)
+      .setScrollFactor(0).setDepth(100);
+    const bg = this.add.graphics();
+
+    if (gameState.floor === 1) {
+      // Jail intro: show jail bars icon
+      bg.fillStyle(0x000000, 0.7);
+      bg.fillRoundedRect(-80, -40, 160, 80, 12);
+      container.add(bg);
+      const jailG = this.add.graphics();
+      // Draw jail bars
+      for (let b = 0; b < 5; b++) {
+        jailG.fillStyle(COLORS.JAIL_BAR, 1);
+        jailG.fillRect(-50 + b * 25, -25, 5, 50);
+      }
+      // Crossed swords over bars (break free!)
+      jailG.lineStyle(4, 0xFF6644, 1);
+      jailG.lineBetween(-30, -20, 30, 20);
+      jailG.lineBetween(30, -20, -30, 20);
+      container.add(jailG);
+    } else if (this.biome === 'forest' && gameState.floor === 6) {
+      // Forest intro!
+      bg.fillStyle(0x000000, 0.7);
+      bg.fillRoundedRect(-90, -45, 180, 90, 12);
+      container.add(bg);
+      const forestG = this.add.graphics();
+      // Trees
+      forestG.fillStyle(0x5A3A1A, 1);
+      forestG.fillRect(-40, -5, 8, 35);
+      forestG.fillRect(10, 0, 8, 30);
+      forestG.fillRect(45, -8, 8, 38);
+      // Canopies
+      forestG.fillStyle(0x44AA44, 1);
+      forestG.fillCircle(-36, -15, 18);
+      forestG.fillCircle(14, -10, 16);
+      forestG.fillCircle(49, -18, 20);
+      forestG.fillStyle(0x66CC66, 0.6);
+      forestG.fillCircle(-30, -20, 10);
+      forestG.fillCircle(20, -15, 8);
+      forestG.fillCircle(55, -22, 10);
+      // Sun
+      forestG.fillStyle(0xFFDD44, 0.8);
+      forestG.fillCircle(70, -30, 12);
+      container.add(forestG);
+    } else if (this.biome === 'ice' && gameState.floor === 11) {
+      // Ice mountain intro!
+      bg.fillStyle(0x000000, 0.7);
+      bg.fillRoundedRect(-90, -45, 180, 90, 12);
+      container.add(bg);
+      const iceG = this.add.graphics();
+      // Mountain
+      iceG.fillStyle(0x8899BB, 1);
+      iceG.fillTriangle(0, -35, -60, 30, 60, 30);
+      // Snow cap
+      iceG.fillStyle(0xEEF4FF, 1);
+      iceG.fillTriangle(0, -35, -25, -5, 25, -5);
+      // Snow sparkles
+      iceG.fillStyle(0xFFFFFF, 0.8);
+      iceG.fillCircle(-10, -15, 2);
+      iceG.fillCircle(8, -20, 2);
+      iceG.fillCircle(15, -8, 1.5);
+      // Snowflakes falling
+      iceG.fillStyle(0xFFFFFF, 0.6);
+      iceG.fillCircle(-50, -20, 3);
+      iceG.fillCircle(-35, 10, 2);
+      iceG.fillCircle(40, -25, 2.5);
+      iceG.fillCircle(55, 5, 2);
+      iceG.fillCircle(-20, 20, 1.5);
+      container.add(iceG);
+    } else if (this.biome === 'sand' && gameState.floor === 16) {
+      // Sand desert intro!
+      bg.fillStyle(0x000000, 0.7);
+      bg.fillRoundedRect(-90, -45, 180, 90, 12);
+      container.add(bg);
+      const sandG = this.add.graphics();
+      // Sand dunes
+      sandG.fillStyle(0xD4B87A, 1);
+      sandG.fillTriangle(-70, 30, -20, -10, 30, 30);
+      sandG.fillTriangle(-10, 30, 40, -20, 80, 30);
+      // Sun
+      sandG.fillStyle(0xFFDD44, 0.9);
+      sandG.fillCircle(-50, -25, 16);
+      // Rays
+      sandG.lineStyle(2, 0xFFDD44, 0.4);
+      for (let r = 0; r < 8; r++) {
+        const angle = r * Math.PI / 4;
+        sandG.lineBetween(-50 + Math.cos(angle)*20, -25 + Math.sin(angle)*20,
+                          -50 + Math.cos(angle)*28, -25 + Math.sin(angle)*28);
+      }
+      // Cactus
+      sandG.fillStyle(0x558833, 1);
+      sandG.fillRect(55, -5, 6, 30);
+      sandG.fillRect(49, 0, 6, 4);
+      sandG.fillRect(61, 5, 6, 4);
+      container.add(sandG);
+    } else if (this.biome === 'finaljail') {
+      // Final jail intro - dark and ominous
+      bg.fillStyle(0x000000, 0.8);
+      bg.fillRoundedRect(-90, -45, 180, 90, 12);
+      container.add(bg);
+      const fjG = this.add.graphics();
+      // Jail bars
+      fjG.fillStyle(0x666655, 0.8);
+      for (let b = 0; b < 6; b++) {
+        fjG.fillRect(-60 + b * 24, -30, 4, 60);
+      }
+      // Prisoner silhouettes behind bars
+      fjG.fillStyle(COLORS.PRISONER, 0.6);
+      fjG.fillCircle(-36, -10, 6);
+      fjG.fillRoundedRect(-42, -4, 12, 14, 3);
+      fjG.fillStyle(COLORS.PRISONER, 0.5);
+      fjG.fillCircle(12, -8, 6);
+      fjG.fillRoundedRect(6, -2, 12, 14, 3);
+      // "FREE THEM" - exclamation marks
+      fjG.fillStyle(0xFFFF44, 0.9);
+      fjG.fillRect(-4, -30, 3, 10);
+      fjG.fillCircle(-2, -17, 2);
+      fjG.fillRect(45, -28, 3, 10);
+      fjG.fillCircle(47, -15, 2);
+      container.add(fjG);
+    } else {
+      // Normal floor: show down arrows + biome color hint
+      bg.fillStyle(0x000000, 0.6);
+      bg.fillRoundedRect(-60, -30, 120, 60, 12);
+      container.add(bg);
+      const arrowG = this.add.graphics();
+      const floorInBiome = this.biome === 'forest' ? gameState.floor - 5 :
+                           this.biome === 'ice' ? gameState.floor - 10 :
+                           this.biome === 'sand' ? gameState.floor - 15 : gameState.floor;
+      const arrowColor = this.biome === 'forest' ? 0x66CC66 :
+                         this.biome === 'ice' ? 0xAADDFF :
+                         this.biome === 'sand' ? 0xDDCC77 : 0xBBBBFF;
+      const showCount = Math.min(floorInBiome, 10);
+      const totalWidth = showCount * 24;
+      const startX = -totalWidth / 2 + 12;
+      for (let i = 0; i < showCount; i++) {
+        arrowG.fillStyle(arrowColor, 1);
+        arrowG.fillRect(startX + i * 24 - 22*0.15, -22*0.35, 22*0.3, 22*0.4);
+        arrowG.fillTriangle(startX + i * 24 - 22*0.35, 22*0.05, startX + i * 24 + 22*0.35, 22*0.05, startX + i * 24, 22*0.45);
+      }
+      container.add(arrowG);
+    }
+
+    this.tweens.add({
+      targets: container, alpha: 0, y: container.y - 40,
+      duration: 2500, ease: 'Power2', delay: 500,
+      onComplete: () => container.destroy()
+    });
+  }
+
+  createHUD() {
+    // HUD at bottom center of screen
+    const hudW = 500;
+    const hudH = 80;
+    const hudX = (800 - hudW) / 2; // centered
+    const hudY = 600 - hudH - 40;  // 40px from bottom
+
+    this.hudContainer = this.add.container(0, 0).setScrollFactor(0).setDepth(50);
+
+    // Semi-transparent background
+    const hudBg = this.add.graphics();
+    hudBg.fillStyle(0x000000, 0.7);
+    hudBg.fillRoundedRect(hudX, hudY, hudW, hudH, 12);
+    hudBg.lineStyle(2, 0xFFFFFF, 0.2);
+    hudBg.strokeRoundedRect(hudX, hudY, hudW, hudH, 12);
+    this.hudContainer.add(hudBg);
+
+    // Store layout offsets for updateHUD
+    this.hudX = hudX;
+    this.hudY = hudY;
+    this.hudW = hudW;
+
+    // Hearts graphics
+    this.heartsGraphics = this.add.graphics();
+    this.hudContainer.add(this.heartsGraphics);
+
+    // Coins graphics
+    this.coinsGraphics = this.add.graphics();
+    this.hudContainer.add(this.coinsGraphics);
+
+    // Floor indicator (down arrows)
+    this.floorGraphics = this.add.graphics();
+    this.hudContainer.add(this.floorGraphics);
+
+    // Equipped items area (right side of HUD)
+    this.equipGraphics = this.add.graphics();
+    this.hudContainer.add(this.equipGraphics);
+
+    // Inventory area (below main HUD bar)
+    this.invBg = this.add.graphics();
+    this.invBg.fillStyle(0x000000, 0.6);
+    this.invBg.fillRoundedRect(hudX + 20, hudY - 38, hudW - 40, 34, 8);
+    this.hudContainer.add(this.invBg);
+
+    this.invGraphics = this.add.graphics();
+    this.hudContainer.add(this.invGraphics);
+  }
+
+  updateHUD() {
+    // === Hearts (big Zelda-style) ===
+    this.heartsGraphics.clear();
+    const hx = this.hudX;
+    const hy = this.hudY;
+    const hw = this.hudW;
+    const maxHearts = Math.floor(gameState.maxHp / 2);
+    const fullHearts = Math.floor(gameState.hp / 2);
+    const halfHeart = gameState.hp % 2 === 1;
+    // Center hearts in the left portion of the HUD
+    const heartStartX = hx + 20;
+    const heartY = hy + 22;
+    for (let i = 0; i < maxHearts; i++) {
+      if (i < fullHearts) {
+        drawHeart(this.heartsGraphics, heartStartX + i * 34, heartY, 26, true);
+      } else if (i === fullHearts && halfHeart) {
+        drawHeart(this.heartsGraphics, heartStartX + i * 34, heartY, 26, false);
+        this.heartsGraphics.fillStyle(COLORS.HEART_FULL, 1);
+        this.heartsGraphics.fillCircle(heartStartX + i * 34 - 26*0.25, heartY - 26*0.1, 26*0.32);
+        this.heartsGraphics.fillTriangle(
+          heartStartX + i * 34 - 26*0.52, heartY,
+          heartStartX + i * 34, heartY,
+          heartStartX + i * 34, heartY + 26*0.52
+        );
+      } else {
+        drawHeart(this.heartsGraphics, heartStartX + i * 34, heartY, 26, false);
+      }
+    }
+
+    // === Coins ===
+    this.coinsGraphics.clear();
+    const coinY = hy + 54;
+    drawCoin(this.coinsGraphics, hx + 20, coinY, 8);
+    const coinCount = gameState.coins;
+    const showCoins = Math.min(coinCount, 20);
+    for (let i = 0; i < showCoins; i++) {
+      drawCoin(this.coinsGraphics, hx + 38 + i * 10, coinY, 5);
+    }
+    if (coinCount > 20) {
+      this.coinsGraphics.fillStyle(0xFFFFFF, 0.8);
+      this.coinsGraphics.fillCircle(hx + 38 + 20 * 10 + 8, coinY, 2);
+      this.coinsGraphics.fillCircle(hx + 38 + 20 * 10 + 14, coinY, 2);
+      this.coinsGraphics.fillCircle(hx + 38 + 20 * 10 + 20, coinY, 2);
+    }
+
+    // === Floor (down arrows) ===
+    this.floorGraphics.clear();
+    const floorStartX = hx + hw - 100;
+    for (let i = 0; i < Math.min(gameState.floor, 8); i++) {
+      drawDownArrow(this.floorGraphics, floorStartX + i * 14, hy + 22, 12);
+    }
+
+    // === Equipped items ===
+    this.equipGraphics.clear();
+    const pick = PICKAXES[gameState.pickaxeLevel];
+    const sword = SWORDS[gameState.swordLevel];
+    const armor = ARMOR[gameState.armorLevel];
+    drawPickaxe(this.equipGraphics, hx + hw - 90, hy + 54, 18, pick.color);
+    if (gameState.diamondSword && gameState.diamondSwingsLeft > 0) {
+      // Diamond sword with glow
+      drawSword(this.equipGraphics, hx + hw - 55, hy + 54, 18, COLORS.DIAMOND_SWORD);
+      this.equipGraphics.lineStyle(2, COLORS.MOONSTONE, 0.5);
+      this.equipGraphics.strokeCircle(hx + hw - 55, hy + 54, 14);
+      // Swings left as dots
+      for (let s = 0; s < gameState.diamondSwingsLeft; s++) {
+        this.equipGraphics.fillStyle(COLORS.DIAMOND_SWORD, 0.9);
+        this.equipGraphics.fillCircle(hx + hw - 70 + s * 7, hy + 72, 2);
+      }
+    } else {
+      drawSword(this.equipGraphics, hx + hw - 55, hy + 54, 18, sword.color);
+    }
+    if (gameState.armorLevel > 0) {
+      drawShield(this.equipGraphics, hx + hw - 20, hy + 54, 18, armor.color);
+    }
+
+    // === Inventory bar (above main HUD) ===
+    this.invGraphics.clear();
+    let ix = hx + 30;
+    const iy = hy - 22;
+    const invItems = [
+      { type: 'stone', count: gameState.inventory.stone },
+      { type: 'copper', count: gameState.inventory.copper },
+      { type: 'iron', count: gameState.inventory.iron },
+      { type: 'gold', count: gameState.inventory.gold },
+    ];
+    for (const item of invItems) {
+      if (item.count > 0) {
+        drawOreIcon(this.invGraphics, ix, iy, 18, item.type);
+        // Pips for quantity (dots)
+        const pips = Math.min(item.count, 10);
+        for (let p = 0; p < pips; p++) {
+          this.invGraphics.fillStyle(0xFFFFFF, 0.8);
+          this.invGraphics.fillCircle(ix - 7 + p * 4, iy + 12, 1.5);
+        }
+        if (item.count > 10) {
+          this.invGraphics.fillStyle(0xFFFFFF, 0.5);
+          this.invGraphics.fillCircle(ix - 7 + 10 * 4 + 3, iy + 12, 1.5);
+          this.invGraphics.fillCircle(ix - 7 + 10 * 4 + 7, iy + 12, 1.5);
+        }
+        ix += 50;
+      }
+    }
+    // Potions
+    if (gameState.inventory.potions > 0) {
+      drawPotion(this.invGraphics, ix + 5, iy, 18);
+      const pp = Math.min(gameState.inventory.potions, 5);
+      for (let p = 0; p < pp; p++) {
+        this.invGraphics.fillStyle(0xFF4466, 0.8);
+        this.invGraphics.fillCircle(ix - 2 + p * 5, iy + 12, 2);
+      }
+    }
+  }
+
+  drawTile(g, x, y) {
+    g.clear();
+    const tile = this.mapData[y][x];
+    const biome = this.biomeColors;
+    let color;
+    switch (tile) {
+      case TILE.FLOOR: color = biome.FLOOR; break;
+      case TILE.WALL: color = biome.WALL; break;
+      case TILE.ROCK: color = biome.ROCK; break;
+      case TILE.ORE_COPPER: color = COLORS.ORE_COPPER; break;
+      case TILE.ORE_IRON: color = COLORS.ORE_IRON; break;
+      case TILE.ORE_GOLD: color = COLORS.ORE_GOLD; break;
+      case TILE.STAIRS: color = COLORS.STAIRS; break;
+      case TILE.STORE: color = COLORS.STORE; break;
+      case TILE.JAIL_BAR: color = COLORS.JAIL_FLOOR; break;
+      case TILE.ORE_DIAMOND: color = COLORS.ORE_DIAMOND; break;
+      case TILE.PRISONER: color = biome.FLOOR; break;
+      default: color = biome.FLOOR;
+    }
+
+    const px = x * TILE_SIZE;
+    const py = y * TILE_SIZE;
+
+    g.fillStyle(color, 1);
+    g.fillRect(px, py, TILE_SIZE, TILE_SIZE);
+
+    // Wall patterns vary by biome
+    if (tile === TILE.WALL) {
+      if (this.biome === 'forest') {
+        // Normal leafy tree
+        // Trunk
+        g.fillStyle(0x6B4226, 1);
+        g.fillRect(px + 14, py + 18, 12, 22);
+        // Big round leaf canopy
+        g.fillStyle(0x2E8B2E, 1);
+        g.fillCircle(px + 20, py + 12, 14);
+        // Lighter leaf highlights
+        g.fillStyle(0x44AA44, 0.7);
+        g.fillCircle(px + 15, py + 8, 7);
+        g.fillCircle(px + 26, py + 10, 6);
+        g.fillCircle(px + 20, py + 5, 5);
+        // Darkest shadow at bottom of canopy
+        g.fillStyle(0x1A6B1A, 0.5);
+        g.fillCircle(px + 20, py + 18, 8);
+      } else if (this.biome === 'ice') {
+        // Pine tree (triangle shape)
+        // Trunk
+        g.fillStyle(0x5A3A1A, 1);
+        g.fillRect(px + 16, py + 28, 8, 12);
+        // Three layered triangle sections (top to bottom)
+        g.fillStyle(0x1B5E3A, 1);
+        g.fillTriangle(px + 20, py + 2, px + 8, py + 16, px + 32, py + 16);
+        g.fillStyle(0x1B6B3A, 1);
+        g.fillTriangle(px + 20, py + 10, px + 5, py + 24, px + 35, py + 24);
+        g.fillStyle(0x1B7B3A, 1);
+        g.fillTriangle(px + 20, py + 16, px + 3, py + 30, px + 37, py + 30);
+        // Snow on branches
+        g.fillStyle(0xFFFFFF, 0.7);
+        g.fillCircle(px + 14, py + 15, 3);
+        g.fillCircle(px + 26, py + 14, 2.5);
+        g.fillCircle(px + 10, py + 23, 3);
+        g.fillCircle(px + 30, py + 22, 2.5);
+        g.fillCircle(px + 20, py + 4, 2);
+      } else if (this.biome === 'sand') {
+        // Palm tree
+        // Curved trunk (slight lean)
+        g.fillStyle(0x8B6914, 1);
+        g.fillRect(px + 16, py + 16, 8, 24);
+        g.fillRect(px + 15, py + 20, 10, 4);
+        g.fillRect(px + 17, py + 12, 7, 6);
+        // Trunk rings
+        g.fillStyle(0x705010, 0.5);
+        g.fillRect(px + 16, py + 20, 8, 2);
+        g.fillRect(px + 16, py + 26, 8, 2);
+        g.fillRect(px + 16, py + 32, 8, 2);
+        // Palm fronds (drooping leaves going outward)
+        g.fillStyle(0x2D8B2D, 1);
+        // Left frond
+        g.fillTriangle(px + 18, py + 12, px + 1, py + 8, px + 4, py + 18);
+        // Right frond
+        g.fillTriangle(px + 22, py + 12, px + 39, py + 6, px + 36, py + 16);
+        // Top frond
+        g.fillTriangle(px + 20, py + 10, px + 12, py + 1, px + 28, py + 1);
+        // Lower left frond
+        g.fillTriangle(px + 17, py + 14, px + 2, py + 22, px + 8, py + 14);
+        // Lower right frond
+        g.fillTriangle(px + 23, py + 14, px + 38, py + 20, px + 32, py + 12);
+        // Lighter frond highlights
+        g.fillStyle(0x44AA44, 0.4);
+        g.fillTriangle(px + 20, py + 10, px + 14, py + 3, px + 26, py + 3);
+        // Coconuts
+        g.fillStyle(0x8B4513, 1);
+        g.fillCircle(px + 17, py + 13, 3);
+        g.fillCircle(px + 23, py + 14, 3);
+      } else if (this.biome === 'finaljail') {
+        // Dark dungeon bricks with red mortar
+        g.fillStyle(0x331111, 0.6);
+        g.fillRect(px, py, TILE_SIZE, 2);
+        g.fillRect(px, py + TILE_SIZE/2, TILE_SIZE, 2);
+        g.fillRect(px + TILE_SIZE/2, py, 2, TILE_SIZE/2);
+        g.fillRect(px + TILE_SIZE/4, py + TILE_SIZE/2, 2, TILE_SIZE/2);
+        // Dark edge
+        g.fillStyle(biome.wallEdge, 1);
+        g.fillRect(px, py, 2, TILE_SIZE);
+        // Faint red glow
+        g.fillStyle(0xFF2222, 0.04);
+        g.fillRect(px, py, TILE_SIZE, TILE_SIZE);
+      } else {
+        // Dungeon: brick pattern
+        g.fillStyle(biome.wallAccent, 1);
+        g.fillRect(px, py, TILE_SIZE, 2);
+        g.fillRect(px, py + TILE_SIZE/2, TILE_SIZE, 2);
+        g.fillRect(px + TILE_SIZE/2, py, 2, TILE_SIZE/2);
+        g.fillRect(px + TILE_SIZE/4, py + TILE_SIZE/2, 2, TILE_SIZE/2);
+        g.fillStyle(biome.wallEdge, 1);
+        g.fillRect(px, py, 2, TILE_SIZE);
+      }
+    }
+
+    // Ore: sparkle highlights
+    if (tile >= TILE.ROCK && tile <= TILE.ORE_GOLD) {
+      g.fillStyle(0xFFFFFF, 0.2);
+      g.fillRect(px + 6, py + 6, 8, 5);
+      g.fillRect(px + 20, py + 18, 10, 4);
+      g.fillStyle(0x000000, 0.15);
+      g.fillRect(px, py + TILE_SIZE - 4, TILE_SIZE, 4);
+      g.fillRect(px + TILE_SIZE - 4, py, 4, TILE_SIZE);
+      // Ore gets sparkle dots
+      if (tile >= TILE.ORE_COPPER) {
+        g.fillStyle(0xFFFFFF, 0.5);
+        g.fillCircle(px + 10, py + 12, 2);
+        g.fillCircle(px + 28, py + 22, 2);
+        if (tile === TILE.ORE_GOLD) {
+          g.fillCircle(px + 18, py + 8, 3);
+        }
+      }
+    }
+
+    // Diamond ore: glowing crystal tile
+    if (tile === TILE.ORE_DIAMOND) {
+      // Diamond crystal shape in center
+      g.fillStyle(0xBBEEFF, 0.9);
+      g.fillTriangle(px + TILE_SIZE/2, py + 4, px + 6, py + TILE_SIZE/2, px + TILE_SIZE - 6, py + TILE_SIZE/2);
+      g.fillRect(px + 6, py + TILE_SIZE/2 - 1, TILE_SIZE - 12, TILE_SIZE/2 - 4);
+      // Moonstone purple glow
+      g.fillStyle(COLORS.MOONSTONE, 0.3);
+      g.fillCircle(px + TILE_SIZE/2, py + TILE_SIZE/2, 16);
+      // Facets
+      g.fillStyle(0xFFFFFF, 0.4);
+      g.fillTriangle(px + TILE_SIZE/2, py + 4, px + TILE_SIZE/2 - 5, py + TILE_SIZE/2, px + TILE_SIZE/2 + 5, py + TILE_SIZE/2);
+      // Sparkles
+      g.fillStyle(0xFFFFFF, 0.8);
+      g.fillCircle(px + 10, py + 10, 2);
+      g.fillCircle(px + 30, py + 14, 2.5);
+      g.fillCircle(px + 14, py + 30, 1.5);
+      g.fillCircle(px + 28, py + 28, 2);
+      // Outer glow
+      g.lineStyle(2, COLORS.MOONSTONE, 0.5);
+      g.strokeCircle(px + TILE_SIZE/2, py + TILE_SIZE/2, 18);
+    }
+
+    // Prisoner: friendly person calling for help
+    if (tile === TILE.PRISONER) {
+      // Body
+      g.fillStyle(COLORS.PRISONER, 1);
+      g.fillRoundedRect(px + 10, py + 14, 20, 20, 5);
+      // Head
+      g.fillStyle(0xFFCC88, 1);
+      g.fillCircle(px + TILE_SIZE/2, py + 12, 8);
+      // Eyes (looking at you)
+      g.fillStyle(0xFFFFFF, 1);
+      g.fillCircle(px + 17, py + 10, 3);
+      g.fillCircle(px + 23, py + 10, 3);
+      g.fillStyle(0x222222, 1);
+      g.fillCircle(px + 18, py + 10, 1.5);
+      g.fillCircle(px + 24, py + 10, 1.5);
+      // Worried mouth (open O)
+      g.fillStyle(0x222222, 1);
+      g.fillCircle(px + TILE_SIZE/2, py + 17, 3);
+      g.fillStyle(0xFFCC88, 1);
+      g.fillCircle(px + TILE_SIZE/2, py + 16, 2);
+      // Arms reaching through bars
+      g.fillStyle(0xFFCC88, 0.8);
+      g.fillRect(px + 4, py + 18, 6, 3);
+      g.fillRect(px + 30, py + 20, 6, 3);
+      // Exclamation (help!)
+      g.fillStyle(0xFFFF44, 0.8);
+      g.fillRect(px + TILE_SIZE/2 - 1, py - 2, 3, 6);
+      g.fillCircle(px + TILE_SIZE/2, py + 6, 1.5);
+    }
+
+    // Stairs: colorful stripes going down
+    if (tile === TILE.STAIRS) {
+      for (let i = 0; i < 5; i++) {
+        const bright = i % 2 === 0 ? 0x8888FF : 0x5555AA;
+        g.fillStyle(bright, 1);
+        g.fillRect(px + 4, py + 4 + i * 7, TILE_SIZE - 8, 5);
+      }
+      // Down arrow overlay
+      g.fillStyle(0xFFFFFF, 0.7);
+      g.fillTriangle(px + TILE_SIZE/2, py + TILE_SIZE - 6, px + 10, py + 14, px + TILE_SIZE - 10, py + 14);
+      g.fillRect(px + TILE_SIZE/2 - 4, py + 6, 8, 12);
+    }
+
+    // Store NPC: friendly green character with hat
+    if (tile === TILE.STORE) {
+      // Little shop building
+      // Walls
+      g.fillStyle(0x8B6B4A, 1);
+      g.fillRect(px + 2, py + 10, 36, 30);
+      // Roof (triangle)
+      g.fillStyle(0xAA3333, 1);
+      g.fillTriangle(px + 20, py + 0, px - 2, py + 12, px + 42, py + 12);
+      // Roof edge
+      g.fillStyle(0x882222, 1);
+      g.fillRect(px - 2, py + 10, 44, 3);
+      // Service window (open, no glass)
+      g.fillStyle(0x1A1A2E, 1);
+      g.fillRect(px + 6, py + 14, 28, 14);
+      // Window ledge / counter
+      g.fillStyle(0x6B5030, 1);
+      g.fillRect(px + 4, py + 28, 32, 4);
+      // Shopkeeper head visible in window
+      g.fillStyle(0xFFCC88, 1);
+      g.fillCircle(px + 20, py + 22, 7);
+      // Eyes
+      g.fillStyle(0x000000, 1);
+      g.fillCircle(px + 17, py + 21, 1.5);
+      g.fillCircle(px + 23, py + 21, 1.5);
+      // Smile
+      g.lineStyle(1, 0x000000, 1);
+      g.beginPath();
+      g.arc(px + 20, py + 24, 3, 0.2, Math.PI - 0.2, false);
+      g.strokePath();
+      // Hat peeking above window
+      g.fillStyle(0x8B4513, 1);
+      g.fillRect(px + 11, py + 14, 18, 3);
+      g.fillRect(px + 13, py + 11, 14, 5);
+      // Sign on counter
+      g.fillStyle(0xFFDD44, 0.8);
+      g.fillRect(px + 12, py + 29, 16, 3);
+      // Bottom of building
+      g.fillStyle(0x7B5B3A, 1);
+      g.fillRect(px + 2, py + 32, 36, 8);
+    }
+
+    // Jail bars: vertical iron bars you can mine through
+    if (tile === TILE.JAIL_BAR) {
+      const barColor = COLORS.JAIL_BAR;
+      const barW = 4;
+      const numBars = 4;
+      const spacing = TILE_SIZE / (numBars + 1);
+      for (let b = 1; b <= numBars; b++) {
+        // Main bar
+        g.fillStyle(barColor, 1);
+        g.fillRect(px + b * spacing - barW/2, py, barW, TILE_SIZE);
+        // Highlight on left edge
+        g.fillStyle(0xBBBBBB, 0.5);
+        g.fillRect(px + b * spacing - barW/2, py, 1, TILE_SIZE);
+        // Shadow on right edge
+        g.fillStyle(0x444444, 0.5);
+        g.fillRect(px + b * spacing + barW/2 - 1, py, 1, TILE_SIZE);
+      }
+      // Horizontal crossbar at top and bottom
+      g.fillStyle(barColor, 1);
+      g.fillRect(px, py + 2, TILE_SIZE, 3);
+      g.fillRect(px, py + TILE_SIZE - 5, TILE_SIZE, 3);
+    }
+
+    // Floor: biome-specific details
+    if (tile === TILE.FLOOR) {
+      const hash = (x * 7 + y * 13) % 7;
+      if (this.biome === 'forest') {
+        // Grass tufts and small flowers
+        if (hash === 0) {
+          g.fillStyle(0x4A7030, 0.4);
+          g.fillRect(px + 12, py + 28, 2, 6);
+          g.fillRect(px + 16, py + 26, 2, 8);
+          g.fillRect(px + 14, py + 30, 2, 5);
+        }
+        if (hash === 2) {
+          // Tiny flower
+          g.fillStyle(0xFFDD44, 0.5);
+          g.fillCircle(px + 28, py + 12, 2);
+          g.fillStyle(0x5A9040, 0.3);
+          g.fillRect(px + 27, py + 14, 2, 5);
+        }
+        if (hash === 4) {
+          g.fillStyle(0xFF8888, 0.4);
+          g.fillCircle(px + 8, py + 22, 2);
+        }
+        if (hash === 5) {
+          // Leaf on ground
+          g.fillStyle(0x5A8040, 0.25);
+          g.fillEllipse(px + 22, py + 32, 8, 4);
+        }
+      } else if (this.biome === 'ice') {
+        // Ice cracks and snow patches
+        if (hash === 0) {
+          g.fillStyle(0xFFFFFF, 0.15);
+          g.fillCircle(px + 15, py + 20, 5);
+        }
+        if (hash === 1) {
+          // Ice crack
+          g.lineStyle(1, 0x88AACC, 0.3);
+          g.lineBetween(px + 5, py + 10, px + 20, py + 25);
+          g.lineBetween(px + 20, py + 25, px + 30, py + 22);
+        }
+        if (hash === 3) {
+          g.fillStyle(0xFFFFFF, 0.2);
+          g.fillEllipse(px + 28, py + 10, 8, 5);
+        }
+        if (hash === 5) {
+          // Frost sparkle
+          g.fillStyle(0xFFFFFF, 0.3);
+          g.fillCircle(px + 10, py + 30, 1.5);
+          g.fillCircle(px + 32, py + 8, 1);
+        }
+      } else if (this.biome === 'sand') {
+        // Sand ripples and small rocks
+        if (hash === 0) {
+          g.lineStyle(1, 0xC4A050, 0.2);
+          g.lineBetween(px + 5, py + 15, px + 35, py + 17);
+          g.lineBetween(px + 8, py + 25, px + 32, py + 27);
+        }
+        if (hash === 2) {
+          // Small rock
+          g.fillStyle(0x8A7040, 0.3);
+          g.fillCircle(px + 28, py + 12, 3);
+        }
+        if (hash === 4) {
+          // Cactus stub
+          g.fillStyle(0x558833, 0.3);
+          g.fillRect(px + 10, py + 24, 3, 8);
+          g.fillRect(px + 7, py + 26, 3, 4);
+        }
+        if (hash === 6) {
+          g.fillStyle(0xE8D098, 0.15);
+          g.fillCircle(px + 18, py + 30, 4);
+        }
+      } else if (this.biome === 'finaljail') {
+        // Dark floor with red tinge and chains
+        if (hash === 0) {
+          g.fillStyle(0xFF2222, 0.05);
+          g.fillCircle(px + 20, py + 20, 8);
+        }
+        if (hash === 2) {
+          // Chain link
+          g.lineStyle(1, 0x666655, 0.3);
+          g.strokeCircle(px + 12, py + 14, 3);
+          g.strokeCircle(px + 16, py + 18, 3);
+        }
+        if (hash === 5) {
+          g.fillStyle(0x000000, 0.1);
+          g.fillCircle(px + 28, py + 28, 2);
+        }
+      } else {
+        // Dungeon: subtle dirt pattern
+        if (hash === 0) {
+          g.fillStyle(0x000000, 0.06);
+          g.fillCircle(px + 15, py + 20, 2);
+        }
+        if (hash === 3) {
+          g.fillStyle(0xFFFFFF, 0.04);
+          g.fillCircle(px + 25, py + 10, 2);
+        }
+      }
+    }
+  }
+
+  createButterfly() {
+    const bx = this.player.x + 20;
+    const by = this.player.y - 20;
+    const container = this.add.container(bx, by);
+    container.setDepth(11);
+
+    const g = this.add.graphics();
+    // Butterfly body (thin)
+    g.fillStyle(0x222222, 1);
+    g.fillRect(-1, -4, 2, 8);
+    // Left wings (two lobes)
+    g.fillStyle(0xFF88DD, 0.85);
+    g.fillEllipse(-8, -4, 12, 8);  // upper wing
+    g.fillStyle(0xFF66CC, 0.75);
+    g.fillEllipse(-7, 4, 10, 6);   // lower wing
+    // Right wings
+    g.fillStyle(0xFF88DD, 0.85);
+    g.fillEllipse(8, -4, 12, 8);
+    g.fillStyle(0xFF66CC, 0.75);
+    g.fillEllipse(7, 4, 10, 6);
+    // Wing spots
+    g.fillStyle(0xFFCCEE, 0.6);
+    g.fillCircle(-8, -4, 2.5);
+    g.fillCircle(8, -4, 2.5);
+    // Antennae
+    g.lineStyle(1, 0x222222, 1);
+    g.lineBetween(0, -4, -4, -10);
+    g.lineBetween(0, -4, 4, -10);
+    g.fillStyle(0xFF88DD, 1);
+    g.fillCircle(-4, -10, 1.5);
+    g.fillCircle(4, -10, 1.5);
+
+    container.add(g);
+
+    // HP bar
+    const hpBg = this.add.graphics();
+    hpBg.fillStyle(0x000000, 0.5);
+    hpBg.fillRoundedRect(-10, -18, 20, 4, 1);
+    container.add(hpBg);
+    const hpBar = this.add.graphics();
+    hpBar.fillStyle(0xFF88DD, 1);
+    hpBar.fillRoundedRect(-9, -17, 18, 2, 1);
+    container.add(hpBar);
+
+    // Wing flutter animation
+    this.tweens.add({
+      targets: g,
+      scaleX: 0.6,
+      duration: 150,
+      yoyo: true,
+      repeat: -1,
+      ease: 'Sine.easeInOut'
+    });
+
+    const maxHp = 6 + gameState.floor * 2;
+    this.butterfly = {
+      container,
+      graphics: g,
+      hpBar,
+      hp: maxHp,
+      maxHp: maxHp,
+      damage: 3 + gameState.floor,
+      alive: true,
+      attackTimer: 0,
+      bobTimer: 0,
+      offsetX: 20,
+      offsetY: -20
+    };
+  }
+
+  updateButterfly(delta, time) {
+    const b = this.butterfly;
+    if (!b || !b.alive) return;
+
+    // Bob up and down gently
+    b.bobTimer += delta;
+    const bobY = Math.sin(b.bobTimer * 0.004) * 6;
+
+    // Follow player with slight offset (floats nearby)
+    const targetX = this.player.x + b.offsetX;
+    const targetY = this.player.y + b.offsetY + bobY;
+    b.container.x += (targetX - b.container.x) * 0.08;
+    b.container.y += (targetY - b.container.y) * 0.08;
+
+    // Find nearest alive enemy
+    b.attackTimer -= delta;
+    if (b.attackTimer <= 0) {
+      let nearest = null;
+      let nearestDist = 999;
+      for (const enemy of this.enemies) {
+        if (!enemy.alive) continue;
+        const dx = enemy.gridX - this.playerGridX;
+        const dy = enemy.gridY - this.playerGridY;
+        const dist = Math.abs(dx) + Math.abs(dy);
+        if (dist < nearestDist && dist <= 3) {
+          nearest = enemy;
+          nearestDist = dist;
+        }
+      }
+
+      if (nearest) {
+        // Fly toward enemy briefly
+        const ex = nearest.container.x;
+        const ey = nearest.container.y;
+
+        // Quick dash to enemy and back
+        this.tweens.add({
+          targets: b.container,
+          x: ex, y: ey - 10,
+          duration: 150,
+          yoyo: true,
+          ease: 'Power2',
+          onYoyo: () => {
+            if (nearest.alive) {
+              this.damageEnemy(nearest, b.damage);
+              // Pink sparkle on hit
+              this.spawnSparkles(ex, ey, 4, 0xFF88DD);
+            }
+          }
+        });
+
+        b.attackTimer = 1200; // attacks every 1.2 seconds
+      } else {
+        b.attackTimer = 300; // check again soon
+      }
+    }
+
+    // Randomly shift offset position so it doesn't just stick in one spot
+    if (Math.random() < 0.005) {
+      b.offsetX = 15 + Math.random() * 20 * (Math.random() < 0.5 ? -1 : 1);
+      b.offsetY = -25 + Math.random() * 15;
+    }
+  }
+
+  damageButterfly(amount) {
+    const b = this.butterfly;
+    if (!b || !b.alive) return;
+    b.hp -= amount;
+
+    // Flash pink
+    this.cameras.main.flash(100, 255, 136, 221, true);
+    this.spawnParticles(b.container.x, b.container.y, 0xFF88DD, 6);
+
+    // Update HP bar
+    b.hpBar.clear();
+    const ratio = Math.max(0, b.hp / b.maxHp);
+    b.hpBar.fillStyle(0xFF88DD, 1);
+    b.hpBar.fillRoundedRect(-9, -17, 18 * ratio, 2, 1);
+
+    if (b.hp <= 0) {
+      b.alive = false;
+      this.spawnParticles(b.container.x, b.container.y, 0xFF88DD, 20);
+      this.spawnSparkles(b.container.x, b.container.y, 8, 0xFF88DD);
+      this.tweens.add({
+        targets: b.container,
+        alpha: 0, scaleX: 1.5, scaleY: 1.5,
+        duration: 500,
+        onComplete: () => b.container.destroy()
+      });
+    }
+  }
+
+  createEnemy(gx, gy, type) {
+    const stats = getEnemyStats(type, gameState.floor);
+    const container = this.add.container(gx * TILE_SIZE + TILE_SIZE/2, gy * TILE_SIZE + TILE_SIZE/2);
+    const g = this.add.graphics();
+
+    if (type === 'zombie') {
+      // Green-gray shambling zombie
+      g.fillStyle(stats.color, 1);
+      g.fillRoundedRect(-13, -12, 26, 28, 5);
+      // Tattered look - darker patches
+      g.fillStyle(0x4A6B3A, 0.6);
+      g.fillRect(-10, 2, 8, 10);
+      g.fillRect(4, -6, 7, 8);
+      // Face
+      g.fillStyle(0xFFFFFF, 0.7);
+      g.fillCircle(-5, -4, 5);
+      g.fillCircle(5, -4, 5);
+      // Uneven pupils (one bigger than the other)
+      g.fillStyle(0x222222, 1);
+      g.fillCircle(-5, -3, 3);
+      g.fillCircle(6, -4, 2);
+      // Open moaning mouth
+      g.fillStyle(0x333333, 1);
+      g.fillEllipse(0, 6, 10, 7);
+      // Teeth
+      g.fillStyle(0xCCCCBB, 1);
+      g.fillRect(-3, 3, 2, 3);
+      g.fillRect(2, 3, 2, 3);
+      // Arms reaching out
+      g.fillStyle(stats.color, 0.8);
+      g.fillRect(-18, -2, 7, 4);
+      g.fillRect(12, -4, 7, 4);
+    } else if (type === 'slime') {
+      // Cute green slime with big eyes and bounce
+      g.fillStyle(stats.color, 1);
+      g.fillEllipse(0, 4, 30, 22);
+      // Lighter top
+      g.fillStyle(0x88EE88, 0.5);
+      g.fillEllipse(0, 0, 22, 14);
+      // Big cute eyes
+      g.fillStyle(0xFFFFFF, 1);
+      g.fillCircle(-6, -3, 6);
+      g.fillCircle(6, -3, 6);
+      g.fillStyle(0x222222, 1);
+      g.fillCircle(-5, -2, 3.5);
+      g.fillCircle(7, -2, 3.5);
+      // Eye highlights
+      g.fillStyle(0xFFFFFF, 1);
+      g.fillCircle(-3, -4, 1.5);
+      g.fillCircle(9, -4, 1.5);
+      // Cute mouth
+      g.lineStyle(1.5, 0x228822, 1);
+      g.beginPath();
+      g.arc(0, 3, 4, 0.1, Math.PI - 0.1, false);
+      g.strokePath();
+    } else if (type === 'skeleton') {
+      // Spooky but still cute skeleton
+      g.fillStyle(stats.color, 1);
+      g.fillRoundedRect(-12, -14, 24, 28, 4);
+      // Skull face: big round eye sockets
+      g.fillStyle(0x333333, 1);
+      g.fillCircle(-5, -6, 4);
+      g.fillCircle(5, -6, 4);
+      // Tiny nose
+      g.fillTriangle(0, -1, -2, 2, 2, 2);
+      // Teeth
+      g.fillStyle(0xAAAAAA, 1);
+      g.fillRect(-6, 5, 4, 3);
+      g.fillRect(-1, 5, 4, 3);
+      g.fillRect(4, 5, 4, 3);
+      // Ribs
+      g.lineStyle(1, 0xBBBBBB, 0.5);
+      g.lineBetween(-8, -14, 8, -14);
+    } else if (type === 'demon') {
+      // Purple imp, still cute-ish
+      g.fillStyle(stats.color, 1);
+      g.fillRoundedRect(-13, -10, 26, 24, 6);
+      // Wings
+      g.fillStyle(0x9944CC, 0.6);
+      g.fillTriangle(-13, -4, -22, -14, -13, 6);
+      g.fillTriangle(13, -4, 22, -14, 13, 6);
+      // Eyes (glowy)
+      g.fillStyle(0xFF6666, 1);
+      g.fillCircle(-5, -3, 4);
+      g.fillCircle(5, -3, 4);
+      g.fillStyle(0xFFFFFF, 1);
+      g.fillCircle(-4, -4, 1.5);
+      g.fillCircle(6, -4, 1.5);
+      // Horns
+      g.fillStyle(0x7722AA, 1);
+      g.fillTriangle(-8, -10, -12, -20, -4, -10);
+      g.fillTriangle(8, -10, 12, -20, 4, -10);
+      // Mouth
+      g.lineStyle(1.5, 0x440066, 1);
+      g.beginPath();
+      g.arc(0, 5, 5, 0.2, Math.PI - 0.2, false);
+      g.strokePath();
+    }
+    container.add(g);
+    container.setDepth(8);
+
+    // HP bar bg
+    const hpBarBg = this.add.graphics();
+    hpBarBg.fillStyle(0x000000, 0.6);
+    hpBarBg.fillRoundedRect(-14, -24, 28, 5, 2);
+    container.add(hpBarBg);
+    // HP bar
+    const hpBar = this.add.graphics();
+    hpBar.fillStyle(0xFF4466, 1);
+    hpBar.fillRoundedRect(-13, -23, 26, 3, 1);
+    container.add(hpBar);
+
+    const enemy = {
+      container, graphics: g, hpBar,
+      gridX: gx, gridY: gy,
+      ...stats,
+      moveTimer: Math.random() * 1500,
+      chaseRange: type === 'demon' ? 4 : 3, // shorter chase range for kids
+      alive: true,
+      knockbackX: 0, knockbackY: 0,
+      flashTimer: 0,
+      bounceTime: Math.random() * 1000
+    };
+    this.enemies.push(enemy);
+
+    // Slime bounce animation
+    if (type === 'slime') {
+      this.tweens.add({
+        targets: g,
+        scaleY: 0.85,
+        scaleX: 1.1,
+        duration: 500,
+        yoyo: true,
+        repeat: -1,
+        ease: 'Sine.easeInOut'
+      });
+    }
+
+    // Zombie shamble animation (tilts side to side)
+    if (type === 'zombie') {
+      this.tweens.add({
+        targets: g,
+        angle: 8,
+        duration: 700,
+        yoyo: true,
+        repeat: -1,
+        ease: 'Sine.easeInOut'
+      });
+    }
+
+    return enemy;
+  }
+
+  isWalkable(x, y) {
+    if (x < 0 || x >= MAP_W || y < 0 || y >= MAP_H) return false;
+    const t = this.mapData[y][x];
+    return t === TILE.FLOOR || t === TILE.STAIRS || t === TILE.STORE || t === TILE.PRISONER;
+  }
+
+  isMineable(x, y) {
+    if (x < 0 || x >= MAP_W || y < 0 || y >= MAP_H) return false;
+    const t = this.mapData[y][x];
+    return t === TILE.ROCK || t === TILE.ORE_COPPER || t === TILE.ORE_IRON || t === TILE.ORE_GOLD || t === TILE.JAIL_BAR || t === TILE.ORE_DIAMOND;
+  }
+
+  getTargetTile() {
+    let dx = 0, dy = 0;
+    switch (gameState.facing) {
+      case 'up': dy = -1; break;
+      case 'down': dy = 1; break;
+      case 'left': dx = -1; break;
+      case 'right': dx = 1; break;
+    }
+    return { x: this.playerGridX + dx, y: this.playerGridY + dy, dx, dy };
+  }
+
+  mineTile(tx, ty) {
+    if (!this.isMineable(tx, ty)) return;
+    const power = PICKAXES[gameState.pickaxeLevel].power;
+    this.tileHpData[ty][tx] -= power;
+
+    this.spawnParticles(tx * TILE_SIZE + TILE_SIZE/2, ty * TILE_SIZE + TILE_SIZE/2,
+      this.getTileColor(this.mapData[ty][tx]), 6);
+    this.cameras.main.shake(60, 0.003);
+
+    if (this.tileHpData[ty][tx] <= 0) {
+      const tile = this.mapData[ty][tx];
+      let lootType = null;
+      // 2x resources for kids
+      switch (tile) {
+        case TILE.ROCK: gameState.inventory.stone += 2; lootType = 'stone'; break;
+        case TILE.ORE_COPPER: gameState.inventory.copper += 2; lootType = 'copper'; break;
+        case TILE.ORE_IRON: gameState.inventory.iron += 2; lootType = 'iron'; break;
+        case TILE.ORE_GOLD: gameState.inventory.gold += 2; lootType = 'gold'; break;
+        case TILE.JAIL_BAR: gameState.inventory.iron += 1; lootType = 'iron'; break;
+        case TILE.ORE_DIAMOND:
+          gameState.diamondSword = true;
+          gameState.diamondSwingsLeft = 10;
+          lootType = 'diamond';
+          break;
+      }
+      this.mapData[ty][tx] = TILE.FLOOR;
+      this.drawTile(this.tileSprites[ty][tx], tx, ty);
+
+      // Big particle burst
+      this.spawnParticles(tx * TILE_SIZE + TILE_SIZE/2, ty * TILE_SIZE + TILE_SIZE/2,
+        this.getTileColor(tile), 18);
+
+      // Floating ore icon (visual loot indicator)
+      if (lootType) {
+        this.showLootIcon(tx * TILE_SIZE + TILE_SIZE/2, ty * TILE_SIZE, lootType);
+      }
+      // Sparkle effect
+      this.spawnSparkles(tx * TILE_SIZE + TILE_SIZE/2, ty * TILE_SIZE + TILE_SIZE/2, 8);
+      this.cameras.main.shake(120, 0.006);
+    } else {
+      const g = this.tileSprites[ty][tx];
+      this.drawTile(g, tx, ty);
+      const ratio = this.tileHpData[ty][tx] / (TILE_HP[this.mapData[ty][tx]] || 1);
+      g.fillStyle(0x000000, 0.25 * (1 - ratio));
+      g.fillRect(tx * TILE_SIZE, ty * TILE_SIZE, TILE_SIZE, TILE_SIZE);
+      // Crack lines
+      g.lineStyle(2, 0x000000, 0.4);
+      g.lineBetween(tx * TILE_SIZE + 5, ty * TILE_SIZE + 8, tx * TILE_SIZE + 20, ty * TILE_SIZE + 25);
+    }
+  }
+
+  showLootIcon(x, y, type) {
+    const g = this.add.graphics().setDepth(25);
+    if (type === 'diamond') {
+      // Big glowing sword icon
+      drawSword(g, 0, 0, 28, COLORS.DIAMOND_SWORD);
+      g.lineStyle(2, COLORS.MOONSTONE, 0.6);
+      g.strokeCircle(0, 0, 18);
+      g.fillStyle(0xFFFFFF, 0.3);
+      g.fillCircle(-3, -8, 3);
+      // Extra sparkles
+      this.spawnSparkles(x, y, 12, COLORS.DIAMOND_SWORD);
+      this.spawnSparkles(x, y, 8, COLORS.MOONSTONE);
+      this.cameras.main.flash(400, 180, 220, 255, true);
+      this.cameras.main.shake(200, 0.01);
+    } else {
+      drawOreIcon(g, 0, 0, 22, type);
+    }
+    g.x = x;
+    g.y = y;
+    this.tweens.add({
+      targets: g, y: y - 50, alpha: 0, duration: type === 'diamond' ? 2000 : 1200, ease: 'Power2',
+      onComplete: () => g.destroy()
+    });
+  }
+
+  showCoinBounce(x, y, count) {
+    for (let i = 0; i < Math.min(count, 5); i++) {
+      const g = this.add.graphics().setDepth(25);
+      drawCoin(g, 0, 0, 6);
+      g.x = x + (Math.random() - 0.5) * 20;
+      g.y = y;
+      const angle = -Math.PI/2 + (Math.random() - 0.5) * 1.2;
+      const speed = 80 + Math.random() * 60;
+      const targetX = g.x + Math.cos(angle) * speed * 0.5;
+      const targetY = g.y + Math.sin(angle) * speed * 0.3;
+      this.tweens.add({
+        targets: g, x: targetX, y: targetY - 30, alpha: 0,
+        duration: 1000 + Math.random() * 300, ease: 'Power2',
+        delay: i * 80,
+        onComplete: () => g.destroy()
+      });
+    }
+  }
+
+  showHealEffect() {
+    // Green sparkles around player
+    this.spawnSparkles(this.player.x, this.player.y, 6, 0x44FF44);
+    // Flash hearts
+    const g = this.add.graphics().setDepth(30).setScrollFactor(0);
+    for (let i = 0; i < 3; i++) {
+      drawHeart(g, this.cameras.main.centerX + (i - 1) * 30,
+        this.cameras.main.centerY - 40, 16, true);
+    }
+    this.tweens.add({
+      targets: g, alpha: 0, y: g.y - 20, duration: 800,
+      onComplete: () => g.destroy()
+    });
+  }
+
+  spawnSparkles(x, y, count, color) {
+    const c = color || 0xFFFF88;
+    for (let i = 0; i < count; i++) {
+      const p = this.add.graphics().setDepth(22);
+      const size = 2 + Math.random() * 3;
+      p.fillStyle(c, 1);
+      // Star-shaped sparkle
+      p.fillRect(-size/2, -1, size, 2);
+      p.fillRect(-1, -size/2, 2, size);
+      const angle = Math.random() * Math.PI * 2;
+      const dist = 10 + Math.random() * 25;
+      p.x = x + Math.cos(angle) * 5;
+      p.y = y + Math.sin(angle) * 5;
+      this.tweens.add({
+        targets: p,
+        x: x + Math.cos(angle) * dist,
+        y: y + Math.sin(angle) * dist,
+        alpha: 0, scaleX: 0.2, scaleY: 0.2,
+        duration: 500 + Math.random() * 400,
+        ease: 'Power2',
+        delay: Math.random() * 100,
+        onComplete: () => p.destroy()
+      });
+    }
+  }
+
+  getTileColor(tile) {
+    switch (tile) {
+      case TILE.ROCK: return COLORS.ROCK;
+      case TILE.ORE_COPPER: return COLORS.ORE_COPPER;
+      case TILE.ORE_IRON: return COLORS.ORE_IRON;
+      case TILE.ORE_GOLD: return COLORS.ORE_GOLD;
+      case TILE.JAIL_BAR: return COLORS.JAIL_BAR;
+      case TILE.ORE_DIAMOND: return COLORS.ORE_DIAMOND;
+      default: return 0xFFFFFF;
+    }
+  }
+
+  attack() {
+    if (gameState.attackCooldown > 0) return;
+    gameState.attackCooldown = 280;
+
+    const target = this.getTargetTile();
+    const sword = SWORDS[gameState.swordLevel];
+    const isDiamond = gameState.diamondSword && gameState.diamondSwingsLeft > 0;
+    const swordColor = isDiamond ? COLORS.DIAMOND_SWORD : sword.color;
+    const swordDamage = isDiamond ? 300 : sword.damage;
+
+    // Circle slash animation
+    this.attackSwing.clear();
+    this.attackSwing.setVisible(true);
+    const cx = this.player.x;
+    const cy = this.player.y;
+    const radius = isDiamond ? TILE_SIZE * 1.6 : TILE_SIZE * 1.2;
+
+    if (isDiamond) {
+      // Diamond sword: dazzling blue-purple ring with sparkles
+      this.attackSwing.lineStyle(5, COLORS.DIAMOND_SWORD, 0.7);
+      this.attackSwing.strokeCircle(cx, cy, radius);
+      this.attackSwing.lineStyle(3, COLORS.MOONSTONE, 0.6);
+      this.attackSwing.strokeCircle(cx, cy, radius - 6);
+      this.attackSwing.lineStyle(2, 0xFFFFFF, 0.4);
+      this.attackSwing.strokeCircle(cx, cy, radius + 4);
+      // Sparkle bursts around the ring
+      for (let a = 0; a < 8; a++) {
+        const angle = a * Math.PI / 4;
+        const sx = cx + Math.cos(angle) * radius;
+        const sy = cy + Math.sin(angle) * radius;
+        this.attackSwing.fillStyle(0xFFFFFF, 0.8);
+        this.attackSwing.fillCircle(sx, sy, 3);
+      }
+      // Screen flash
+      this.cameras.main.flash(100, 180, 220, 255, true);
+    } else {
+      // Normal circle slash
+      this.attackSwing.lineStyle(4, 0xFFFFFF, 0.5);
+      this.attackSwing.strokeCircle(cx, cy, radius);
+      this.attackSwing.lineStyle(3, swordColor, 0.6);
+      this.attackSwing.strokeCircle(cx, cy, radius - 4);
+      for (let a = 0; a < 4; a++) {
+        const angle = a * Math.PI / 2 + Math.random() * 0.3;
+        const sx = cx + Math.cos(angle) * (radius - 8);
+        const sy = cy + Math.sin(angle) * (radius - 8);
+        const ex = cx + Math.cos(angle + 0.5) * (radius + 6);
+        const ey = cy + Math.sin(angle + 0.5) * (radius + 6);
+        this.attackSwing.lineStyle(2, swordColor, 0.7);
+        this.attackSwing.lineBetween(sx, sy, ex, ey);
+      }
+    }
+
+    this.time.delayedCall(150, () => {
+      this.attackSwing.clear();
+      this.attackSwing.setVisible(false);
+    });
+
+    // Mine the tile you're facing
+    if (this.isMineable(target.x, target.y)) {
+      this.mineTile(target.x, target.y);
+    }
+
+    // Circle slash: hit ALL enemies within range (any direction)
+    const slashRange = isDiamond ? 3 : 2;
+    for (const enemy of this.enemies) {
+      if (!enemy.alive) continue;
+      const edx = enemy.gridX - this.playerGridX;
+      const edy = enemy.gridY - this.playerGridY;
+      const dist = Math.abs(edx) + Math.abs(edy);
+      if (dist <= slashRange) {
+        this.damageEnemy(enemy, swordDamage);
+      }
+    }
+
+    // Diamond sword: shoot homing energy balls at all visible enemies
+    if (isDiamond) {
+      for (const enemy of this.enemies) {
+        if (!enemy.alive) continue;
+        const edx = enemy.gridX - this.playerGridX;
+        const edy = enemy.gridY - this.playerGridY;
+        const dist = Math.abs(edx) + Math.abs(edy);
+        if (dist > slashRange && dist <= 8) {
+          this.spawnHomingBall(this.player.x, this.player.y, enemy);
+        }
+      }
+
+      // Count down swings
+      gameState.diamondSwingsLeft--;
+      this.spawnSparkles(this.player.x, this.player.y, 6, COLORS.DIAMOND_SWORD);
+
+      if (gameState.diamondSwingsLeft <= 0) {
+        // Sword breaks!
+        gameState.diamondSword = false;
+        this.cameras.main.shake(300, 0.015);
+        this.spawnParticles(this.player.x, this.player.y, COLORS.DIAMOND_SWORD, 30);
+        this.spawnParticles(this.player.x, this.player.y, COLORS.MOONSTONE, 20);
+        this.spawnSparkles(this.player.x, this.player.y, 15, 0xFFFFFF);
+        this.cameras.main.flash(300, 200, 230, 255, true);
+      }
+    }
+  }
+
+  spawnHomingBall(sx, sy, targetEnemy) {
+    const ball = this.add.graphics().setDepth(20);
+    // Glowing energy ball
+    ball.fillStyle(COLORS.MOONSTONE, 0.6);
+    ball.fillCircle(0, 0, 8);
+    ball.fillStyle(COLORS.DIAMOND_SWORD, 0.8);
+    ball.fillCircle(0, 0, 5);
+    ball.fillStyle(0xFFFFFF, 0.9);
+    ball.fillCircle(-1, -1, 2);
+    ball.x = sx;
+    ball.y = sy;
+
+    const homingBall = { graphics: ball, target: targetEnemy, speed: 250, life: 2000 };
+    if (!this.homingBalls) this.homingBalls = [];
+    this.homingBalls.push(homingBall);
+  }
+
+  updateHomingBalls(delta) {
+    if (!this.homingBalls) return;
+    for (let i = this.homingBalls.length - 1; i >= 0; i--) {
+      const hb = this.homingBalls[i];
+      hb.life -= delta;
+
+      if (hb.life <= 0 || !hb.target.alive) {
+        // Fizzle out
+        this.spawnSparkles(hb.graphics.x, hb.graphics.y, 3, COLORS.MOONSTONE);
+        hb.graphics.destroy();
+        this.homingBalls.splice(i, 1);
+        continue;
+      }
+
+      // Home toward target
+      const tx = hb.target.container.x;
+      const ty = hb.target.container.y;
+      const dx = tx - hb.graphics.x;
+      const dy = ty - hb.graphics.y;
+      const dist = Math.sqrt(dx*dx + dy*dy);
+
+      if (dist < 15) {
+        // Hit!
+        this.damageEnemy(hb.target, 50 + gameState.floor * 5);
+        this.spawnSparkles(tx, ty, 6, COLORS.DIAMOND_SWORD);
+        this.spawnParticles(tx, ty, COLORS.MOONSTONE, 8);
+        hb.graphics.destroy();
+        this.homingBalls.splice(i, 1);
+        continue;
+      }
+
+      // Move toward target with slight wobble
+      const nx = dx / dist;
+      const ny = dy / dist;
+      const wobble = Math.sin(hb.life * 0.01) * 30;
+      hb.graphics.x += (nx * hb.speed + ny * wobble) * delta / 1000;
+      hb.graphics.y += (ny * hb.speed - nx * wobble) * delta / 1000;
+
+      // Trail sparkle
+      if (Math.random() < 0.3) {
+        const trail = this.add.graphics().setDepth(19);
+        trail.fillStyle(COLORS.MOONSTONE, 0.5);
+        trail.fillCircle(0, 0, 2 + Math.random() * 2);
+        trail.x = hb.graphics.x;
+        trail.y = hb.graphics.y;
+        this.tweens.add({
+          targets: trail, alpha: 0, scaleX: 0.1, scaleY: 0.1,
+          duration: 300,
+          onComplete: () => trail.destroy()
+        });
+      }
+    }
+  }
+
+  damageEnemy(enemy, damage) {
+    enemy.hp -= damage;
+    enemy.flashTimer = 150;
+    const dx = enemy.gridX - this.playerGridX;
+    const dy = enemy.gridY - this.playerGridY;
+    const len = Math.sqrt(dx*dx + dy*dy) || 1;
+    enemy.knockbackX = (dx/len) * 8;
+    enemy.knockbackY = (dy/len) * 8;
+
+    this.spawnParticles(enemy.container.x, enemy.container.y, enemy.color, 10);
+    this.cameras.main.shake(80, 0.004);
+
+    if (enemy.hp <= 0) {
+      this.killEnemy(enemy);
+    }
+
+    const ratio = Math.max(0, enemy.hp / enemy.maxHp);
+    enemy.hpBar.clear();
+    enemy.hpBar.fillStyle(0xFF4466, 1);
+    enemy.hpBar.fillRoundedRect(-13, -23, 26 * ratio, 3, 1);
+  }
+
+  killEnemy(enemy) {
+    enemy.alive = false;
+    // More generous coins for kids (3-8 base)
+    const coins = enemy.coins + Math.floor(Math.random() * 3);
+    gameState.coins += coins;
+
+    // Coin bounce visual
+    this.showCoinBounce(enemy.container.x, enemy.container.y, coins);
+    this.spawnParticles(enemy.container.x, enemy.container.y, enemy.color, 22);
+    this.spawnSparkles(enemy.container.x, enemy.container.y, 10, COLORS.COIN);
+
+    // Generous potion drops
+    if (Math.random() < 0.25) {
+      gameState.inventory.potions += 1;
+      // Show potion icon floating up
+      const pg = this.add.graphics().setDepth(25);
+      drawPotion(pg, 0, 0, 20);
+      pg.x = enemy.container.x + 15;
+      pg.y = enemy.container.y;
+      this.tweens.add({
+        targets: pg, y: pg.y - 50, alpha: 0, duration: 1200,
+        onComplete: () => pg.destroy()
+      });
+    }
+
+    this.tweens.add({
+      targets: enemy.container, alpha: 0, scaleX: 1.5, scaleY: 1.5,
+      duration: 400, ease: 'Power2',
+      onComplete: () => enemy.container.destroy()
+    });
+  }
+
+  damagePlayer(amount) {
+    if (gameState.invincibleTimer > 0 || gameState.dead) return;
+    // Armor reduces damage (minimum 1)
+    const defense = ARMOR[gameState.armorLevel].defense;
+    const reduced = Math.max(1, amount - defense);
+    gameState.hp -= reduced;
+    gameState.invincibleTimer = 800; // longer invincibility for kids
+
+    // Red flash + shake
+    this.cameras.main.flash(250, 255, 50, 50, true);
+    this.cameras.main.shake(200, 0.012);
+
+    // Floating broken heart
+    const hg = this.add.graphics().setDepth(30);
+    drawHeart(hg, 0, 0, 16, true);
+    // crack through heart
+    hg.lineStyle(2, 0x000000, 1);
+    hg.lineBetween(-4, -8, 3, 8);
+    hg.x = this.player.x;
+    hg.y = this.player.y - 20;
+    this.tweens.add({
+      targets: hg, y: hg.y - 40, alpha: 0, duration: 1000,
+      onComplete: () => hg.destroy()
+    });
+
+    if (gameState.hp <= 0) {
+      gameState.hp = 0;
+      this.playerDeath();
+    }
+  }
+
+  playerDeath() {
+    gameState.dead = true;
+    this.spawnParticles(this.player.x, this.player.y, COLORS.PLAYER, 30);
+    this.player.setVisible(false);
+
+    // Visual death screen -- no text, just icons
+    const overlay = this.add.graphics().setScrollFactor(0).setDepth(100);
+    overlay.fillStyle(0x000000, 0.75);
+    overlay.fillRect(0, 0, this.cameras.main.width, this.cameras.main.height);
+
+    const cx = this.cameras.main.centerX;
+    const cy = this.cameras.main.centerY;
+
+    // Sad face
+    const sad = this.add.graphics().setScrollFactor(0).setDepth(101);
+    // Big circle face
+    sad.fillStyle(COLORS.PLAYER, 1);
+    sad.fillCircle(cx, cy - 40, 40);
+    // Eyes (X marks for dead)
+    sad.lineStyle(4, 0xFFFFFF, 1);
+    sad.lineBetween(cx - 18, cy - 52, cx - 8, cy - 42);
+    sad.lineBetween(cx - 8, cy - 52, cx - 18, cy - 42);
+    sad.lineBetween(cx + 8, cy - 52, cx + 18, cy - 42);
+    sad.lineBetween(cx + 18, cy - 52, cx + 8, cy - 42);
+    // Frown
+    sad.lineStyle(3, 0xFFFFFF, 1);
+    sad.beginPath();
+    sad.arc(cx, cy - 18, 12, Math.PI + 0.3, -0.3, false);
+    sad.strokePath();
+
+    // Pulsing play button to respawn (green triangle)
+    const playBtn = this.add.graphics().setScrollFactor(0).setDepth(101);
+    playBtn.fillStyle(0x44CC44, 1);
+    playBtn.fillCircle(cx, cy + 50, 35);
+    playBtn.fillStyle(0xFFFFFF, 1);
+    playBtn.fillTriangle(cx - 12, cy + 35, cx - 12, cy + 65, cx + 18, cy + 50);
+
+    this.tweens.add({
+      targets: playBtn, scaleX: 1.1, scaleY: 1.1, duration: 500,
+      yoyo: true, repeat: -1, ease: 'Sine.easeInOut'
+    });
+
+    // NO resource loss for kids! Just respawn same floor.
+    this.input.keyboard.once('keydown-SPACE', () => {
+      gameState.hp = gameState.maxHp;
+      gameState.dead = false;
+      this.scene.restart();
+    });
+  }
+
+  usePotion() {
+    if (gameState.inventory.potions <= 0) return;
+    if (gameState.hp >= gameState.maxHp) return;
+    gameState.inventory.potions--;
+    const heal = Math.min(POTION_HEAL * 2, gameState.maxHp - gameState.hp);
+    gameState.hp += heal;
+    this.showHealEffect();
+  }
+
+  spawnParticles(x, y, color, count) {
+    for (let i = 0; i < count; i++) {
+      const p = this.add.graphics().setDepth(18);
+      p.fillStyle(color, 1);
+      const size = 3 + Math.random() * 5;
+      p.fillCircle(0, 0, size/2);
+      p.x = x;
+      p.y = y;
+      const angle = Math.random() * Math.PI * 2;
+      const speed = 60 + Math.random() * 120;
+      const vx = Math.cos(angle) * speed;
+      const vy = Math.sin(angle) * speed;
+      const particle = { graphics: p, vx, vy, life: 500 + Math.random() * 400 };
+      this.particles.push(particle);
+      this.tweens.add({
+        targets: p, alpha: 0, duration: particle.life, ease: 'Power2',
+        onComplete: () => p.destroy()
+      });
+    }
+  }
+
+  // ===== STORE (fully visual) =====
+  openStore() {
+    if (this.storeOpen) return;
+    this.storeOpen = true;
+    this.storeSelectionIndex = 0;
+    this.storeSection = 'buy';
+    this.buildStoreItems();
+
+    // Find the store tile position for the animation
+    let storePx = 0, storePy = 0;
+    const dirs = [[0,-1],[0,1],[-1,0],[1,0],[0,0]];
+    for (const [ddx, ddy] of dirs) {
+      const sx = this.playerGridX + ddx;
+      const sy = this.playerGridY + ddy;
+      if (sx >= 0 && sx < MAP_W && sy >= 0 && sy < MAP_H && this.mapData[sy][sx] === TILE.STORE) {
+        storePx = sx * TILE_SIZE;
+        storePy = sy * TILE_SIZE;
+        break;
+      }
+    }
+
+    // Shopkeeper walks away animation
+    const anim = this.add.graphics().setDepth(25);
+    // Draw shopkeeper head sliding down (ducking behind counter)
+    let frame = 0;
+    const walkAway = this.time.addEvent({
+      delay: 60,
+      repeat: 7,
+      callback: () => {
+        anim.clear();
+        frame++;
+        // Redraw window area
+        anim.fillStyle(0x1A1A2E, 1);
+        anim.fillRect(storePx + 6, storePy + 14, 28, 14);
+        if (frame <= 4) {
+          // Head sliding down behind counter
+          const headY = storePy + 22 + frame * 3;
+          anim.fillStyle(0xFFCC88, 1);
+          anim.fillCircle(storePx + 20, headY, 7);
+          anim.fillStyle(0x8B4513, 1);
+          anim.fillRect(storePx + 13, headY - 9, 14, 3);
+        }
+        // Counter stays
+        anim.fillStyle(0x6B5030, 1);
+        anim.fillRect(storePx + 4, storePy + 28, 32, 4);
+        anim.fillStyle(0xFFDD44, 0.8);
+        anim.fillRect(storePx + 12, storePy + 29, 16, 3);
+
+        if (frame === 8) {
+          // After walking away, pause, then come back with store open
+          this.time.delayedCall(300, () => {
+            // Shopkeeper comes back up
+            let returnFrame = 0;
+            const walkBack = this.time.addEvent({
+              delay: 60,
+              repeat: 4,
+              callback: () => {
+                anim.clear();
+                returnFrame++;
+                anim.fillStyle(0x1A1A2E, 1);
+                anim.fillRect(storePx + 6, storePy + 14, 28, 14);
+                const headY = storePy + 34 - returnFrame * 3;
+                anim.fillStyle(0xFFCC88, 1);
+                anim.fillCircle(storePx + 20, headY, 7);
+                anim.fillStyle(0x8B4513, 1);
+                anim.fillRect(storePx + 13, headY - 9, 14, 3);
+                anim.fillStyle(0x6B5030, 1);
+                anim.fillRect(storePx + 4, storePy + 28, 32, 4);
+                anim.fillStyle(0xFFDD44, 0.8);
+                anim.fillRect(storePx + 12, storePy + 29, 16, 3);
+                if (returnFrame === 4) {
+                  anim.destroy();
+                  this.renderStore();
+                }
+              }
+            });
+          });
+        }
+      }
+    });
+  }
+
+  buildStoreItems() {
+    // Buy items list
+    this.storeBuyItems = [];
+    // Pickaxes (show next available)
+    if (gameState.pickaxeLevel + 1 < PICKAXES.length) {
+      const i = gameState.pickaxeLevel + 1;
+      this.storeBuyItems.push({
+        type: 'pickaxe', level: i, cost: PICKAXES[i].cost,
+        owned: false, canAfford: gameState.coins >= PICKAXES[i].cost
+      });
+    }
+    // Swords (show next available)
+    if (gameState.swordLevel + 1 < SWORDS.length) {
+      const i = gameState.swordLevel + 1;
+      this.storeBuyItems.push({
+        type: 'sword', level: i, cost: SWORDS[i].cost,
+        owned: false, canAfford: gameState.coins >= SWORDS[i].cost
+      });
+    }
+    // Armor (show next available)
+    if (gameState.armorLevel + 1 < ARMOR.length) {
+      const i = gameState.armorLevel + 1;
+      this.storeBuyItems.push({
+        type: 'armor', level: i, cost: ARMOR[i].cost,
+        owned: false, canAfford: gameState.coins >= ARMOR[i].cost
+      });
+    }
+    // Potion
+    this.storeBuyItems.push({
+      type: 'potion', cost: POTION_COST,
+      owned: false, canAfford: gameState.coins >= POTION_COST
+    });
+
+    // Sell items
+    this.storeSellItems = [];
+    const oreTypes = ['stone', 'copper', 'iron', 'gold'];
+    for (const ore of oreTypes) {
+      if (gameState.inventory[ore] > 0) {
+        this.storeSellItems.push({
+          type: ore, count: gameState.inventory[ore],
+          value: gameState.inventory[ore] * SELL_PRICES[ore]
+        });
+      }
+    }
+  }
+
+  renderStore() {
+    if (this.storeUI) {
+      this.storeUI.destroy(true);
+      this.storeUI = null;
+    }
+
+    const cx = this.cameras.main.centerX;
+    const cy = this.cameras.main.centerY;
+    const W = 500;
+    const H = 400;
+    const left = cx - W/2;
+    const top = cy - H/2;
+
+    this.storeUI = this.add.container(0, 0).setScrollFactor(0).setDepth(60);
+
+    // Dimmed background
+    const bg = this.add.graphics();
+    bg.fillStyle(0x000000, 0.85);
+    bg.fillRect(0, 0, this.cameras.main.width, this.cameras.main.height);
+    this.storeUI.add(bg);
+
+    // Main panel
+    const panel = this.add.graphics();
+    panel.fillStyle(0x2A2A3E, 1);
+    panel.lineStyle(3, COLORS.COIN, 1);
+    panel.fillRoundedRect(left, top, W, H, 14);
+    panel.strokeRoundedRect(left, top, W, H, 14);
+    this.storeUI.add(panel);
+
+    // Store NPC face at top
+    const npc = this.add.graphics();
+    npc.fillStyle(0xFFCC88, 1);
+    npc.fillCircle(cx, top + 30, 18);
+    npc.fillStyle(0x000000, 1);
+    npc.fillCircle(cx - 6, top + 27, 3);
+    npc.fillCircle(cx + 6, top + 27, 3);
+    npc.lineStyle(2, 0x000000, 1);
+    npc.beginPath();
+    npc.arc(cx, top + 34, 6, 0.2, Math.PI - 0.2, false);
+    npc.strokePath();
+    npc.fillStyle(0x8B4513, 1);
+    npc.fillRect(cx - 14, top + 10, 28, 5);
+    npc.fillRect(cx - 10, top + 4, 20, 8);
+    this.storeUI.add(npc);
+
+    // Your coins display
+    const coinBar = this.add.graphics();
+    coinBar.fillStyle(0x000000, 0.4);
+    coinBar.fillRoundedRect(left + 15, top + 52, W - 30, 24, 6);
+    drawCoin(coinBar, left + 30, top + 64, 8);
+    const cc = Math.min(gameState.coins, 25);
+    for (let i = 0; i < cc; i++) {
+      drawCoin(coinBar, left + 48 + i * 9, top + 64, 4);
+    }
+    if (gameState.coins > 25) {
+      coinBar.fillStyle(0xFFFFFF, 0.6);
+      coinBar.fillCircle(left + 48 + 25*9 + 6, top + 64, 1.5);
+      coinBar.fillCircle(left + 48 + 25*9 + 11, top + 64, 1.5);
+    }
+    this.storeUI.add(coinBar);
+
+    // === SELL Section (top) ===
+    let sy = top + 85;
+    const sellG = this.add.graphics();
+
+    // Sell header: ore icon -> arrow -> coin icon
+    if (this.storeSellItems.length > 0) {
+      // Section divider
+      sellG.fillStyle(0xFFFFFF, 0.15);
+      sellG.fillRect(left + 20, sy, W - 40, 1);
+      sy += 8;
+
+      for (let i = 0; i < this.storeSellItems.length; i++) {
+        const item = this.storeSellItems[i];
+        const ix = left + 40;
+        const iy = sy + i * 44 + 20;
+
+        const isSelected = this.storeSection === 'sell' && this.storeSelectionIndex === i;
+
+        // Selection highlight
+        if (isSelected) {
+          sellG.fillStyle(0xFFFFFF, 0.15);
+          sellG.fillRoundedRect(left + 18, iy - 16, W - 36, 38, 8);
+          sellG.lineStyle(2, COLORS.COIN, 1);
+          sellG.strokeRoundedRect(left + 18, iy - 16, W - 36, 38, 8);
+        }
+
+        // Ore icon
+        drawOreIcon(sellG, ix, iy, 22, item.type);
+
+        // Quantity pips
+        const pips = Math.min(item.count, 10);
+        for (let p = 0; p < pips; p++) {
+          sellG.fillStyle(0xFFFFFF, 0.7);
+          sellG.fillCircle(ix + 20 + p * 6, iy, 2);
+        }
+        if (item.count > 10) {
+          sellG.fillStyle(0xFFFFFF, 0.4);
+          sellG.fillCircle(ix + 20 + 10*6 + 4, iy, 1.5);
+          sellG.fillCircle(ix + 20 + 10*6 + 9, iy, 1.5);
+        }
+
+        // Arrow
+        drawArrowRight(sellG, left + W/2 + 40, iy, 18);
+
+        // Coins you'd get
+        const coinCount = Math.min(Math.ceil(item.value / 2), 12);
+        for (let c = 0; c < coinCount; c++) {
+          drawCoin(sellG, left + W/2 + 70 + c * 10, iy, 5);
+        }
+      }
+      sy += this.storeSellItems.length * 44 + 10;
+    }
+
+    // Divider
+    sellG.fillStyle(0xFFFFFF, 0.2);
+    sellG.fillRect(left + 20, sy, W - 40, 2);
+    sy += 12;
+
+    this.storeUI.add(sellG);
+
+    // === BUY Section ===
+    const buyG = this.add.graphics();
+    this.buyStartY = sy;
+
+    for (let i = 0; i < this.storeBuyItems.length; i++) {
+      const item = this.storeBuyItems[i];
+      const iy = sy + i * 48 + 20;
+      const isSelected = this.storeSection === 'buy' && this.storeSelectionIndex === i;
+
+      // Selection highlight
+      if (isSelected) {
+        buyG.fillStyle(0xFFFFFF, 0.15);
+        buyG.fillRoundedRect(left + 18, iy - 18, W - 36, 42, 8);
+        buyG.lineStyle(2, 0x44FF44, 1);
+        buyG.strokeRoundedRect(left + 18, iy - 18, W - 36, 42, 8);
+      }
+
+      // Item icon
+      const ix = left + 45;
+      if (item.type === 'pickaxe') {
+        drawPickaxe(buyG, ix, iy, 22, PICKAXES[item.level].color);
+      } else if (item.type === 'sword') {
+        drawSword(buyG, ix, iy, 22, SWORDS[item.level].color);
+      } else if (item.type === 'armor') {
+        drawShield(buyG, ix, iy, 22, ARMOR[item.level].color);
+      } else if (item.type === 'potion') {
+        drawPotion(buyG, ix, iy, 22);
+      }
+
+      // Cost in coin icons
+      const costCoins = Math.min(Math.ceil(item.cost / 5), 15);
+      for (let c = 0; c < costCoins; c++) {
+        const alpha = item.canAfford ? 1 : 0.3;
+        buyG.fillStyle(COLORS.COIN, alpha);
+        buyG.fillCircle(ix + 40 + c * 11, iy, 5);
+        buyG.fillStyle(COLORS.COIN_DARK, alpha);
+        buyG.fillCircle(ix + 40 + c * 11, iy, 2.5);
+      }
+
+      // Dim if can't afford
+      if (!item.canAfford) {
+        buyG.fillStyle(0x000000, 0.4);
+        buyG.fillRoundedRect(left + 18, iy - 18, W - 36, 42, 8);
+      }
+    }
+    this.storeUI.add(buyG);
+
+    // Close button (X in circle) at top right
+    const closeG = this.add.graphics();
+    closeG.fillStyle(0xFF5555, 1);
+    closeG.fillCircle(left + W - 22, top + 22, 14);
+    closeG.lineStyle(3, 0xFFFFFF, 1);
+    closeG.lineBetween(left + W - 28, top + 16, left + W - 16, top + 28);
+    closeG.lineBetween(left + W - 16, top + 16, left + W - 28, top + 28);
+    this.storeUI.add(closeG);
+
+    // Navigation hint: arrow icons at bottom
+    const navG = this.add.graphics();
+    const navY = top + H - 25;
+    // Up arrow
+    navG.fillStyle(0xFFFFFF, 0.5);
+    navG.fillTriangle(cx - 60, navY, cx - 50, navY - 10, cx - 40, navY);
+    // Down arrow
+    navG.fillTriangle(cx - 20, navY - 10, cx - 10, navY, cx - 30, navY);
+    // Space bar icon (rounded rect)
+    navG.fillStyle(0xFFFFFF, 0.4);
+    navG.fillRoundedRect(cx + 10, navY - 12, 50, 14, 4);
+    navG.lineStyle(1, 0xFFFFFF, 0.6);
+    navG.strokeRoundedRect(cx + 10, navY - 12, 50, 14, 4);
+    // Checkmark on spacebar
+    drawCheckmark(navG, cx + 35, navY - 5, 10);
+
+    this.storeUI.add(navG);
+  }
+
+  handleStoreInput() {
+    if (!this.storeOpen) return;
+
+    const items = this.storeSection === 'sell' ? this.storeSellItems : this.storeBuyItems;
+    const maxIdx = items.length - 1;
+
+    // Navigate up/down
+    if (Phaser.Input.Keyboard.JustDown(this.cursors.up) || Phaser.Input.Keyboard.JustDown(this.wasd.W)) {
+      this.storeSelectionIndex--;
+      if (this.storeSelectionIndex < 0) {
+        // Switch section
+        if (this.storeSection === 'buy' && this.storeSellItems.length > 0) {
+          this.storeSection = 'sell';
+          this.storeSelectionIndex = this.storeSellItems.length - 1;
+        } else {
+          this.storeSelectionIndex = items.length - 1;
+        }
+      }
+      this.renderStore();
+    }
+    if (Phaser.Input.Keyboard.JustDown(this.cursors.down) || Phaser.Input.Keyboard.JustDown(this.wasd.S)) {
+      this.storeSelectionIndex++;
+      const currentItems = this.storeSection === 'sell' ? this.storeSellItems : this.storeBuyItems;
+      if (this.storeSelectionIndex > currentItems.length - 1) {
+        if (this.storeSection === 'sell') {
+          this.storeSection = 'buy';
+          this.storeSelectionIndex = 0;
+        } else {
+          this.storeSelectionIndex = 0;
+        }
+      }
+      this.renderStore();
+    }
+
+    // Select with space
+    if (Phaser.Input.Keyboard.JustDown(this.spaceKey)) {
+      if (this.storeSection === 'sell') {
+        const item = this.storeSellItems[this.storeSelectionIndex];
+        if (item && item.count > 0) {
+          gameState.coins += item.value;
+          gameState.inventory[item.type] = 0;
+          // Sparkle feedback
+          this.showPurchaseEffect();
+          this.buildStoreItems();
+          if (this.storeSellItems.length === 0) {
+            this.storeSection = 'buy';
+            this.storeSelectionIndex = 0;
+          } else if (this.storeSelectionIndex >= this.storeSellItems.length) {
+            this.storeSelectionIndex = Math.max(0, this.storeSellItems.length - 1);
+          }
+          this.renderStore();
+        }
+      } else {
+        const item = this.storeBuyItems[this.storeSelectionIndex];
+        if (item && item.canAfford) {
+          if (item.type === 'pickaxe') {
+            gameState.coins -= item.cost;
+            gameState.pickaxeLevel = item.level;
+          } else if (item.type === 'sword') {
+            gameState.coins -= item.cost;
+            gameState.swordLevel = item.level;
+          } else if (item.type === 'armor') {
+            gameState.coins -= item.cost;
+            gameState.armorLevel = item.level;
+          } else if (item.type === 'potion') {
+            gameState.coins -= item.cost;
+            gameState.inventory.potions++;
+          }
+          this.showPurchaseEffect();
+          this.buildStoreItems();
+          if (this.storeSelectionIndex >= this.storeBuyItems.length) {
+            this.storeSelectionIndex = Math.max(0, this.storeBuyItems.length - 1);
+          }
+          this.renderStore();
+        }
+      }
+    }
+
+    // Close
+    if (Phaser.Input.Keyboard.JustDown(this.eKey) || Phaser.Input.Keyboard.JustDown(this.escKey)) {
+      this.closeStore();
+    }
+  }
+
+  showPurchaseEffect() {
+    // Big green checkmark flash
+    const g = this.add.graphics().setScrollFactor(0).setDepth(70);
+    const cx = this.cameras.main.centerX;
+    const cy = this.cameras.main.centerY;
+    g.fillStyle(0x44FF44, 0.3);
+    g.fillCircle(cx, cy, 60);
+    drawCheckmark(g, cx, cy, 40);
+
+    this.tweens.add({
+      targets: g, alpha: 0, scaleX: 1.5, scaleY: 1.5,
+      duration: 600, ease: 'Power2',
+      onComplete: () => g.destroy()
+    });
+  }
+
+  closeStore() {
+    if (this.storeUI) {
+      this.storeUI.destroy(true);
+      this.storeUI = null;
+    }
+    this.storeOpen = false;
+    // Redraw player to show new armor/equipment
+    this.drawPlayerBody(this.playerBody);
+  }
+
+  goDownStairs() {
+    gameState.floor++;
+    gameState.hp = Math.min(gameState.maxHp, gameState.hp + 4);
+    this.cameras.main.fade(600, 0, 0, 0, false, (camera, progress) => {
+      if (progress >= 1) this.scene.restart();
+    });
+  }
+
+  freePrisoner(tx, ty) {
+    // Turn prisoner tile into floor
+    this.mapData[ty][tx] = TILE.FLOOR;
+    this.drawTile(this.tileSprites[ty][tx], tx, ty);
+    this.prisonersFreed++;
+
+    // Celebration effect
+    const px = tx * TILE_SIZE + TILE_SIZE / 2;
+    const py = ty * TILE_SIZE + TILE_SIZE / 2;
+    this.spawnSparkles(px, py, 12, 0xFFDD44);
+    this.spawnSparkles(px, py, 8, 0x44FF44);
+    this.cameras.main.flash(200, 100, 255, 100, true);
+
+    // Freed person runs away (visual only)
+    const freed = this.add.graphics().setDepth(25);
+    freed.fillStyle(COLORS.PRISONER, 1);
+    freed.fillRoundedRect(-8, -6, 16, 16, 4);
+    freed.fillStyle(0xFFCC88, 1);
+    freed.fillCircle(0, -8, 6);
+    // Happy face
+    freed.fillStyle(0x222222, 1);
+    freed.fillCircle(-2, -9, 1.5);
+    freed.fillCircle(2, -9, 1.5);
+    freed.lineStyle(1.5, 0x222222, 1);
+    freed.beginPath();
+    freed.arc(0, -6, 3, 0.2, Math.PI - 0.2, false);
+    freed.strokePath();
+    freed.x = px;
+    freed.y = py;
+    // Run away animation
+    const runDir = Math.random() < 0.5 ? -1 : 1;
+    this.tweens.add({
+      targets: freed, x: px + runDir * 200, y: py - 80, alpha: 0,
+      duration: 1500, ease: 'Power2',
+      onComplete: () => freed.destroy()
+    });
+
+    // Check if all prisoners are freed
+    if (this.prisonersFreed >= this.prisonersToFree && this.isFinalJail) {
+      this.time.delayedCall(800, () => this.showVictory());
+    }
+  }
+
+  showVictory() {
+    gameState.dead = true; // stop game updates
+
+    const overlay = this.add.graphics().setScrollFactor(0).setDepth(100);
+    overlay.fillStyle(0x000000, 0);
+    // Fade in
+    this.tweens.add({
+      targets: overlay, alpha: 1, duration: 1000,
+      onUpdate: (tween) => {
+        overlay.clear();
+        overlay.fillStyle(0x000000, tween.getValue() * 0.8);
+        overlay.fillRect(0, 0, 800, 600);
+      }
+    });
+
+    const cx = 400;
+    const cy = 300;
+
+    this.time.delayedCall(1200, () => {
+      // Big golden star burst
+      const starG = this.add.graphics().setScrollFactor(0).setDepth(101);
+      starG.fillStyle(0xFFD700, 1);
+      drawStar(starG, cx, cy - 80, 50, 25, 5);
+      starG.fillStyle(0xFFFF88, 0.6);
+      drawStar(starG, cx, cy - 80, 35, 18, 5);
+
+      // YOU WON!
+      this.add.text(cx, cy - 10, 'YOU WON!', {
+        fontSize: '52px', fontFamily: 'Arial, sans-serif', fill: '#FFD700',
+        stroke: '#000', strokeThickness: 8, fontStyle: 'bold'
+      }).setOrigin(0.5).setScrollFactor(0).setDepth(101);
+
+      // Everyone is free!
+      this.add.text(cx, cy + 40, 'Everyone is free!', {
+        fontSize: '24px', fontFamily: 'Arial, sans-serif', fill: '#FFFFFF',
+        stroke: '#000', strokeThickness: 4
+      }).setOrigin(0.5).setScrollFactor(0).setDepth(101);
+
+      // Freed people celebration
+      const celebG = this.add.graphics().setScrollFactor(0).setDepth(101);
+      const personColors = [0xFFAA66, 0xFF8844, 0xFFCC88, 0xDDAA55, 0xFFBB77, 0xEE9955];
+      for (let i = 0; i < 6; i++) {
+        const px = cx - 120 + i * 48;
+        const py = cy + 100;
+        celebG.fillStyle(personColors[i], 1);
+        celebG.fillRoundedRect(px - 8, py, 16, 16, 4);
+        celebG.fillStyle(0xFFCC88, 1);
+        celebG.fillCircle(px, py - 4, 6);
+        // Happy eyes
+        celebG.fillStyle(0x222222, 1);
+        celebG.fillCircle(px - 2, py - 5, 1);
+        celebG.fillCircle(px + 2, py - 5, 1);
+        // Arms up!
+        celebG.fillStyle(personColors[i], 0.8);
+        celebG.fillRect(px - 14, py - 6, 6, 3);
+        celebG.fillRect(px + 8, py - 8, 6, 3);
+      }
+
+      // Sparkles everywhere
+      for (let i = 0; i < 30; i++) {
+        const sx = Math.random() * 800;
+        const sy = Math.random() * 600;
+        const sparkG = this.add.graphics().setScrollFactor(0).setDepth(102);
+        sparkG.fillStyle(0xFFDD44, 0.8);
+        const ss = 2 + Math.random() * 3;
+        sparkG.fillRect(sx - ss/2, sy - 1, ss, 2);
+        sparkG.fillRect(sx - 1, sy - ss/2, 2, ss);
+        this.tweens.add({
+          targets: sparkG, alpha: 0, scaleX: 0.2, scaleY: 0.2,
+          duration: 800 + Math.random() * 1200,
+          delay: Math.random() * 2000,
+          yoyo: true, repeat: -1
+        });
+      }
+
+      // Play again button
+      const playBtn = this.add.graphics().setScrollFactor(0).setDepth(101);
+      playBtn.fillStyle(0x44CC44, 1);
+      playBtn.fillCircle(cx, cy + 170, 30);
+      playBtn.fillStyle(0xFFFFFF, 1);
+      playBtn.fillTriangle(cx - 10, cy + 155, cx - 10, cy + 185, cx + 16, cy + 170);
+
+      this.tweens.add({
+        targets: playBtn, scaleX: 1.12, scaleY: 1.12,
+        duration: 600, yoyo: true, repeat: -1, ease: 'Sine.easeInOut'
+      });
+
+      this.input.keyboard.once('keydown-SPACE', () => {
+        this.scene.start('TitleScene');
+      });
+    });
+  }
+
+  update(time, delta) {
+    if (gameState.dead) return;
+
+    // Timers
+    if (gameState.attackCooldown > 0) gameState.attackCooldown -= delta;
+    if (gameState.invincibleTimer > 0) gameState.invincibleTimer -= delta;
+
+    // Health regen: 1 heart (2 hp) every 10 seconds
+    if (gameState.hp < gameState.maxHp) {
+      gameState.regenTimer += delta;
+      if (gameState.regenTimer >= 10000) {
+        gameState.regenTimer = 0;
+        gameState.hp = Math.min(gameState.maxHp, gameState.hp + 2);
+        this.spawnSparkles(this.player.x, this.player.y, 4, 0x44FF44);
+      }
+    } else {
+      gameState.regenTimer = 0;
+    }
+
+    // Invincibility flash
+    if (gameState.invincibleTimer > 0) {
+      this.player.setAlpha(Math.sin(time * 0.02) > 0 ? 1 : 0.3);
+    } else {
+      this.player.setAlpha(1);
+    }
+
+    // Store input
+    if (this.storeOpen) {
+      this.handleStoreInput();
+      this.updateHUD();
+      return;
+    }
+
+    // Movement
+    this.playerMoveTimer -= delta;
+    if (this.playerMoveTimer <= 0) {
+      let dx = 0, dy = 0;
+      if (this.cursors.left.isDown || this.wasd.A.isDown) { dx = -1; gameState.facing = 'left'; }
+      else if (this.cursors.right.isDown || this.wasd.D.isDown) { dx = 1; gameState.facing = 'right'; }
+      else if (this.cursors.up.isDown || this.wasd.W.isDown) { dy = -1; gameState.facing = 'up'; }
+      else if (this.cursors.down.isDown || this.wasd.S.isDown) { dy = 1; gameState.facing = 'down'; }
+
+      if (dx !== 0 || dy !== 0) {
+        const nx = this.playerGridX + dx;
+        const ny = this.playerGridY + dy;
+        if (this.isWalkable(nx, ny)) {
+          this.playerGridX = nx;
+          this.playerGridY = ny;
+          this.playerMoveTimer = 110;
+
+          this.tweens.add({
+            targets: this.player,
+            x: nx * TILE_SIZE + TILE_SIZE/2,
+            y: ny * TILE_SIZE + TILE_SIZE/2,
+            duration: 90,
+            ease: 'Power1'
+          });
+
+          // Check stairs
+          if (this.mapData[ny][nx] === TILE.STAIRS) {
+            this.goDownStairs();
+            return;
+          }
+
+          // Check prisoner rescue
+          if (this.mapData[ny][nx] === TILE.PRISONER) {
+            this.freePrisoner(nx, ny);
+          }
+        } else if (this.isMineable(nx, ny)) {
+          this.mineTile(nx, ny);
+          this.playerMoveTimer = 180;
+        }
+      }
+    }
+
+    // Attack
+    if (Phaser.Input.Keyboard.JustDown(this.spaceKey)) {
+      // Check for store first
+      const dirs = [[0,-1],[0,1],[-1,0],[1,0],[0,0]];
+      let nearStore = false;
+      for (const [ddx, ddy] of dirs) {
+        const cx = this.playerGridX + ddx;
+        const cy = this.playerGridY + ddy;
+        if (cx >= 0 && cx < MAP_W && cy >= 0 && cy < MAP_H && this.mapData[cy][cx] === TILE.STORE) {
+          this.openStore();
+          nearStore = true;
+          break;
+        }
+      }
+      if (!nearStore) {
+        this.attack();
+      }
+    }
+
+    // E also opens store
+    if (Phaser.Input.Keyboard.JustDown(this.eKey)) {
+      const dirs = [[0,-1],[0,1],[-1,0],[1,0],[0,0]];
+      for (const [ddx, ddy] of dirs) {
+        const cx = this.playerGridX + ddx;
+        const cy = this.playerGridY + ddy;
+        if (cx >= 0 && cx < MAP_W && cy >= 0 && cy < MAP_H && this.mapData[cy][cx] === TILE.STORE) {
+          this.openStore();
+          break;
+        }
+      }
+    }
+
+    // Manual potion: press F
+    if (Phaser.Input.Keyboard.JustDown(this.fKey)) {
+      this.usePotion();
+    }
+
+    // Auto-use potion when very low health (1 heart left) -- helper for kids
+    if (gameState.hp <= 2 && gameState.inventory.potions > 0) {
+      this.usePotion();
+    }
+
+    // Update butterfly companion
+    this.updateButterfly(delta, time);
+    this.updateHomingBalls(delta);
+
+    // Update enemies
+    for (const enemy of this.enemies) {
+      if (!enemy.alive) continue;
+
+      if (enemy.knockbackX !== 0 || enemy.knockbackY !== 0) {
+        enemy.container.x += enemy.knockbackX;
+        enemy.container.y += enemy.knockbackY;
+        enemy.knockbackX *= 0.75;
+        enemy.knockbackY *= 0.75;
+        if (Math.abs(enemy.knockbackX) < 0.5 && Math.abs(enemy.knockbackY) < 0.5) {
+          enemy.knockbackX = 0;
+          enemy.knockbackY = 0;
+          enemy.container.x = enemy.gridX * TILE_SIZE + TILE_SIZE/2;
+          enemy.container.y = enemy.gridY * TILE_SIZE + TILE_SIZE/2;
+        }
+        continue;
+      }
+
+      if (enemy.flashTimer > 0) {
+        enemy.flashTimer -= delta;
+        enemy.graphics.setAlpha(Math.sin(time * 0.03) > 0 ? 1 : 0.3);
+      } else {
+        enemy.graphics.setAlpha(1);
+      }
+
+      // All enemies visible (no fog of war)
+      enemy.container.setVisible(true);
+
+      // AI movement (30% slower for kids)
+      enemy.moveTimer -= delta;
+      if (enemy.moveTimer <= 0) {
+        const distToPlayer = Math.abs(enemy.gridX - this.playerGridX) + Math.abs(enemy.gridY - this.playerGridY);
+        let mdx = 0, mdy = 0;
+        if (distToPlayer <= enemy.chaseRange) {
+          const pdx = this.playerGridX - enemy.gridX;
+          const pdy = this.playerGridY - enemy.gridY;
+          if (Math.abs(pdx) > Math.abs(pdy)) { mdx = pdx > 0 ? 1 : -1; }
+          else { mdy = pdy > 0 ? 1 : -1; }
+        } else {
+          const dir = Math.floor(Math.random() * 4);
+          if (dir === 0) mdx = 1;
+          else if (dir === 1) mdx = -1;
+          else if (dir === 2) mdy = 1;
+          else mdy = -1;
+        }
+
+        const enx = enemy.gridX + mdx;
+        const eny = enemy.gridY + mdy;
+        if (this.isWalkable(enx, eny)) {
+          const blocked = this.enemies.some(e => e !== enemy && e.alive && e.gridX === enx && e.gridY === eny);
+          if (!blocked) {
+            enemy.gridX = enx;
+            enemy.gridY = eny;
+            this.tweens.add({
+              targets: enemy.container,
+              x: enx * TILE_SIZE + TILE_SIZE/2,
+              y: eny * TILE_SIZE + TILE_SIZE/2,
+              duration: 250, ease: 'Power1'
+            });
+          }
+        }
+
+        // 30% slower movement for kids
+        const speedFactor = distToPlayer <= enemy.chaseRange ? 1.0 : 1.6;
+        enemy.moveTimer = (1000 / (enemy.speed / 60)) * speedFactor * 1.3;
+      }
+
+      // Damage on contact
+      if (enemy.gridX === this.playerGridX && enemy.gridY === this.playerGridY) {
+        this.damagePlayer(enemy.damage);
+      }
+
+      // Enemies can hurt the butterfly if close enough
+      if (this.butterfly && this.butterfly.alive) {
+        const bdx = this.butterfly.container.x - enemy.container.x;
+        const bdy = this.butterfly.container.y - enemy.container.y;
+        const bDist = Math.sqrt(bdx*bdx + bdy*bdy);
+        if (bDist < TILE_SIZE * 0.8 && Math.random() < 0.02) {
+          this.damageButterfly(enemy.damage);
+        }
+      }
+    }
+
+    // Particles
+    for (let i = this.particles.length - 1; i >= 0; i--) {
+      const p = this.particles[i];
+      p.graphics.x += p.vx * delta / 1000;
+      p.graphics.y += p.vy * delta / 1000;
+      p.vy += 100 * delta / 1000;
+      p.life -= delta;
+      if (p.life <= 0) this.particles.splice(i, 1);
+    }
+
+    // No fog of war -- all tiles fully visible
+    for (let y = 0; y < MAP_H; y++) {
+      for (let x = 0; x < MAP_W; x++) {
+        this.tileSprites[y][x].setAlpha(1);
+      }
+    }
+
+    this.updateHUD();
+  }
+}
+
+// ============================================================
+// TITLE SCENE
+// ============================================================
+class TitleScene extends Phaser.Scene {
+  constructor() { super('TitleScene'); }
+
+  create() {
+    const cx = this.cameras.main.centerX;
+    const cy = this.cameras.main.centerY;
+    this.cameras.main.setBackgroundColor('#1a1a2e');
+
+    // Title
+    this.add.text(cx, 40, 'DUNGEON MINER', {
+      fontSize: '42px', fontFamily: 'Arial, sans-serif', fill: '#FFD700',
+      stroke: '#000', strokeThickness: 6, fontStyle: 'bold'
+    }).setOrigin(0.5);
+
+    // Story text
+    const story = [
+      'You were a normal human.',
+      'You lived in a normal city.',
+      '',
+      'But then the zombies came.',
+      'They took over the world.',
+      'They locked you up and threw you in jail.',
+      '',
+      'Now you have to escape.',
+      'Monsters are everywhere.',
+      'Break out. Fight. Survive.'
+    ];
+
+    const storyStyle = {
+      fontSize: '16px', fontFamily: 'Arial, sans-serif', fill: '#CCCCCC',
+      align: 'center', lineSpacing: 4
+    };
+    this.add.text(cx, 90, story.join('\n'), storyStyle).setOrigin(0.5, 0);
+
+    // Controls section (compact, below story)
+    const controlsY = 310;
+    const controlStyle = { fontSize: '14px', fontFamily: 'Arial', fill: '#888888' };
+    const keyStyle = { fontSize: '13px', fontFamily: 'Arial', fill: '#AAAAAA', fontStyle: 'bold' };
+
+    const guideG = this.add.graphics();
+
+    // Controls background
+    guideG.fillStyle(0xFFFFFF, 0.05);
+    guideG.fillRoundedRect(cx - 200, controlsY - 10, 400, 120, 10);
+
+    // Row 1: Move
+    this.add.text(cx - 180, controlsY, 'Arrow Keys / WASD', keyStyle);
+    this.add.text(cx + 50, controlsY, 'Move', controlStyle);
+    // Tiny player
+    guideG.fillStyle(COLORS.PLAYER, 1);
+    guideG.fillRoundedRect(cx + 120, controlsY - 2, 16, 16, 4);
+    guideG.fillStyle(0xFFFFFF, 1);
+    guideG.fillCircle(cx + 125, controlsY + 4, 2);
+    guideG.fillCircle(cx + 131, controlsY + 4, 2);
+
+    // Row 2: Attack
+    this.add.text(cx - 180, controlsY + 28, 'Space', keyStyle);
+    this.add.text(cx + 50, controlsY + 28, 'Attack + Mine', controlStyle);
+    drawSword(guideG, cx + 140, controlsY + 36, 14, 0x999999);
+
+    // Row 3: Store
+    this.add.text(cx - 180, controlsY + 56, 'E', keyStyle);
+    this.add.text(cx + 50, controlsY + 56, 'Open Store', controlStyle);
+    guideG.fillStyle(0x3CB371, 0.8);
+    guideG.fillRoundedRect(cx + 133, controlsY + 54, 14, 14, 3);
+
+    // Row 4: Potion
+    this.add.text(cx - 180, controlsY + 84, 'F', keyStyle);
+    this.add.text(cx + 50, controlsY + 84, 'Drink Potion', controlStyle);
+    drawPotion(guideG, cx + 140, controlsY + 92, 14);
+
+    // Decorative zombies on sides
+    const decoG = this.add.graphics();
+    // Zombie on left
+    decoG.fillStyle(COLORS.ZOMBIE, 1);
+    decoG.fillRoundedRect(60, cy + 80, 26, 28, 5);
+    decoG.fillStyle(0xFFFFFF, 0.7);
+    decoG.fillCircle(67, cy + 87, 4);
+    decoG.fillCircle(79, cy + 87, 4);
+    decoG.fillStyle(0x222222, 1);
+    decoG.fillCircle(67, cy + 88, 2);
+    decoG.fillCircle(80, cy + 87, 1.5);
+    decoG.fillStyle(0x333333, 1);
+    decoG.fillEllipse(73, cy + 96, 8, 5);
+    // Jail bars behind zombie
+    decoG.fillStyle(COLORS.JAIL_BAR, 0.4);
+    for (let b = 0; b < 4; b++) {
+      decoG.fillRect(45 + b * 18, cy + 65, 3, 55);
+    }
+
+    // Zombie on right
+    decoG.fillStyle(COLORS.ZOMBIE, 1);
+    decoG.fillRoundedRect(710, cy + 85, 26, 28, 5);
+    decoG.fillStyle(0xFFFFFF, 0.7);
+    decoG.fillCircle(717, cy + 92, 4);
+    decoG.fillCircle(729, cy + 92, 4);
+    decoG.fillStyle(0x222222, 1);
+    decoG.fillCircle(717, cy + 93, 2);
+    decoG.fillCircle(730, cy + 92, 1.5);
+    decoG.fillStyle(0x333333, 1);
+    decoG.fillEllipse(723, cy + 101, 8, 5);
+    // Jail bars behind zombie
+    decoG.fillStyle(COLORS.JAIL_BAR, 0.4);
+    for (let b = 0; b < 4; b++) {
+      decoG.fillRect(700 + b * 18, cy + 70, 3, 55);
+    }
+
+    // Big pulsing play button
+    const btnY = cy + 190;
+    this.playBtn = this.add.graphics();
+    this.playBtn.fillStyle(0x44CC44, 1);
+    this.playBtn.fillCircle(cx, btnY, 36);
+    this.playBtn.fillStyle(0xFFFFFF, 1);
+    this.playBtn.fillTriangle(cx - 12, btnY - 16, cx - 12, btnY + 16, cx + 18, btnY);
+
+    this.tweens.add({
+      targets: this.playBtn, scaleX: 1.12, scaleY: 1.12,
+      duration: 600, yoyo: true, repeat: -1, ease: 'Sine.easeInOut'
+    });
+
+    this.input.keyboard.once('keydown-SPACE', () => {
+      gameState.floor = 1;
+      gameState.coins = 0;
+      gameState.hp = 10;
+      gameState.maxHp = 10;
+      gameState.inventory = { stone: 0, copper: 0, iron: 0, gold: 0, potions: 1 };
+      gameState.pickaxeLevel = 1; // stone
+      gameState.swordLevel = 1;   // stone
+      gameState.armorLevel = 0;   // none
+      gameState.diamondSword = false;
+      gameState.diamondSwingsLeft = 0;
+      gameState.facing = 'down';
+      gameState.attackCooldown = 0;
+      gameState.invincibleTimer = 0;
+      gameState.score = 0;
+      gameState.dead = false;
+      gameState.regenTimer = 0;
+
+      this.cameras.main.fade(500, 0, 0, 0, false, (camera, progress) => {
+        if (progress >= 1) this.scene.start('GameScene');
+      });
+    });
+  }
+}
+
+// ============================================================
+// PHASER CONFIG
+// ============================================================
+const config = {
+  type: Phaser.AUTO,
+  parent: 'game-container',
+  width: 800,
+  height: 600,
+  pixelArt: true,
+  scale: {
+    mode: Phaser.Scale.FIT,
+    autoCenter: Phaser.Scale.CENTER_BOTH
+  },
+  scene: [TitleScene, GameScene]
+};
+
+const game = new Phaser.Game(config);
+</script>
+</body>
+</html>
