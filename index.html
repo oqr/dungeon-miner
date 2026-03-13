@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <title>Dungeon Miner</title>
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -14,13 +14,44 @@
     align-items: center;
     height: 100vh;
   }
+  html, body { touch-action: none; -webkit-touch-callout: none; -webkit-user-select: none; user-select: none; }
   #game-container { position: relative; }
-  canvas { display: block; image-rendering: pixelated; }
+  canvas { display: block; image-rendering: pixelated; touch-action: none; }
+
+  /* Mobile touch controls */
+  #touch-controls { display: none; position: fixed; bottom: 0; left: 0; right: 0; height: 180px; z-index: 100; pointer-events: none; }
+  #touch-controls.visible { display: block; }
+  .touch-btn {
+    position: absolute; pointer-events: auto;
+    width: 56px; height: 56px; border-radius: 14px;
+    background: rgba(255,255,255,0.12); border: 2px solid rgba(255,255,255,0.2);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 24px; color: rgba(255,255,255,0.6);
+    -webkit-tap-highlight-color: transparent;
+  }
+  .touch-btn:active, .touch-btn.pressed { background: rgba(255,255,255,0.3); border-color: rgba(255,255,255,0.5); }
+  .touch-btn.action { width: 64px; height: 64px; border-radius: 32px; font-size: 13px; font-weight: bold; font-family: Arial, sans-serif; }
+  /* D-pad positioning */
+  #dpad-up    { left: 72px; bottom: 130px; }
+  #dpad-down  { left: 72px; bottom: 18px; }
+  #dpad-left  { left: 12px; bottom: 74px; }
+  #dpad-right { left: 132px; bottom: 74px; }
+  /* Action buttons */
+  #btn-attack { right: 20px; bottom: 74px; background: rgba(255,68,100,0.2); border-color: rgba(255,68,100,0.4); }
+  #btn-potion { right: 90px; bottom: 130px; background: rgba(68,204,68,0.2); border-color: rgba(68,204,68,0.4); }
 </style>
 <script src="https://cdn.jsdelivr.net/npm/phaser@3.60.0/dist/phaser.min.js"></script>
 </head>
 <body>
 <div id="game-container"></div>
+<div id="touch-controls">
+  <div id="dpad-up" class="touch-btn">&#9650;</div>
+  <div id="dpad-down" class="touch-btn">&#9660;</div>
+  <div id="dpad-left" class="touch-btn">&#9664;</div>
+  <div id="dpad-right" class="touch-btn">&#9654;</div>
+  <div id="btn-attack" class="touch-btn action">&#9876;</div>
+  <div id="btn-potion" class="touch-btn action">&#9829;</div>
+</div>
 <script>
 // ============================================================
 // DUNGEON MINER - Kid-Friendly Edition (Ages 4-5)
@@ -2297,11 +2328,13 @@ class GameScene extends Phaser.Scene {
     });
 
     // NO resource loss for kids! Just respawn same floor.
-    this.input.keyboard.once('keydown-SPACE', () => {
+    const respawn = () => {
       gameState.hp = gameState.maxHp;
       gameState.dead = false;
       this.scene.restart();
-    });
+    };
+    this.input.keyboard.once('keydown-SPACE', respawn);
+    this.input.once('pointerdown', respawn);
   }
 
   usePotion() {
@@ -2661,11 +2694,20 @@ class GameScene extends Phaser.Scene {
   handleStoreInput() {
     if (!this.storeOpen) return;
 
+    // Touch rising edges for store navigation
+    let touchStoreUp = false, touchStoreDown = false, touchStoreSelect = false;
+    if (touchInput.up && !this._touchStoreUpPrev) touchStoreUp = true;
+    this._touchStoreUpPrev = touchInput.up;
+    if (touchInput.down && !this._touchStoreDownPrev) touchStoreDown = true;
+    this._touchStoreDownPrev = touchInput.down;
+    if (touchInput.attack && !this._touchStoreSelectPrev) touchStoreSelect = true;
+    this._touchStoreSelectPrev = touchInput.attack;
+
     const items = this.storeSection === 'sell' ? this.storeSellItems : this.storeBuyItems;
     const maxIdx = items.length - 1;
 
     // Navigate up/down
-    if (Phaser.Input.Keyboard.JustDown(this.cursors.up) || Phaser.Input.Keyboard.JustDown(this.wasd.W)) {
+    if (Phaser.Input.Keyboard.JustDown(this.cursors.up) || Phaser.Input.Keyboard.JustDown(this.wasd.W) || touchStoreUp) {
       this.storeSelectionIndex--;
       if (this.storeSelectionIndex < 0) {
         // Switch section
@@ -2678,7 +2720,7 @@ class GameScene extends Phaser.Scene {
       }
       this.renderStore();
     }
-    if (Phaser.Input.Keyboard.JustDown(this.cursors.down) || Phaser.Input.Keyboard.JustDown(this.wasd.S)) {
+    if (Phaser.Input.Keyboard.JustDown(this.cursors.down) || Phaser.Input.Keyboard.JustDown(this.wasd.S) || touchStoreDown) {
       this.storeSelectionIndex++;
       const currentItems = this.storeSection === 'sell' ? this.storeSellItems : this.storeBuyItems;
       if (this.storeSelectionIndex > currentItems.length - 1) {
@@ -2692,8 +2734,8 @@ class GameScene extends Phaser.Scene {
       this.renderStore();
     }
 
-    // Select with space
-    if (Phaser.Input.Keyboard.JustDown(this.spaceKey)) {
+    // Select with space or touch attack button
+    if (Phaser.Input.Keyboard.JustDown(this.spaceKey) || touchStoreSelect) {
       if (this.storeSection === 'sell') {
         const item = this.storeSellItems[this.storeSelectionIndex];
         if (item && item.count > 0) {
@@ -2736,8 +2778,11 @@ class GameScene extends Phaser.Scene {
       }
     }
 
-    // Close
-    if (Phaser.Input.Keyboard.JustDown(this.eKey) || Phaser.Input.Keyboard.JustDown(this.escKey)) {
+    // Close (potion button doubles as close on mobile)
+    let touchCloseJust = false;
+    if (touchInput.potion && !this._touchStoreClosePrev) touchCloseJust = true;
+    this._touchStoreClosePrev = touchInput.potion;
+    if (Phaser.Input.Keyboard.JustDown(this.eKey) || Phaser.Input.Keyboard.JustDown(this.escKey) || touchCloseJust) {
       this.closeStore();
     }
   }
@@ -2906,9 +2951,9 @@ class GameScene extends Phaser.Scene {
         duration: 600, yoyo: true, repeat: -1, ease: 'Sine.easeInOut'
       });
 
-      this.input.keyboard.once('keydown-SPACE', () => {
-        this.scene.start('TitleScene');
-      });
+      const goTitle = () => { this.scene.start('TitleScene'); };
+      this.input.keyboard.once('keydown-SPACE', goTitle);
+      this.input.once('pointerdown', goTitle);
     });
   }
 
@@ -2949,10 +2994,10 @@ class GameScene extends Phaser.Scene {
     this.playerMoveTimer -= delta;
     if (this.playerMoveTimer <= 0) {
       let dx = 0, dy = 0;
-      if (this.cursors.left.isDown || this.wasd.A.isDown) { dx = -1; gameState.facing = 'left'; }
-      else if (this.cursors.right.isDown || this.wasd.D.isDown) { dx = 1; gameState.facing = 'right'; }
-      else if (this.cursors.up.isDown || this.wasd.W.isDown) { dy = -1; gameState.facing = 'up'; }
-      else if (this.cursors.down.isDown || this.wasd.S.isDown) { dy = 1; gameState.facing = 'down'; }
+      if (this.cursors.left.isDown || this.wasd.A.isDown || touchInput.left) { dx = -1; gameState.facing = 'left'; }
+      else if (this.cursors.right.isDown || this.wasd.D.isDown || touchInput.right) { dx = 1; gameState.facing = 'right'; }
+      else if (this.cursors.up.isDown || this.wasd.W.isDown || touchInput.up) { dy = -1; gameState.facing = 'up'; }
+      else if (this.cursors.down.isDown || this.wasd.S.isDown || touchInput.down) { dy = 1; gameState.facing = 'down'; }
 
       if (dx !== 0 || dy !== 0) {
         const nx = this.playerGridX + dx;
@@ -2987,8 +3032,18 @@ class GameScene extends Phaser.Scene {
       }
     }
 
+    // Touch attack: detect rising edge
+    let touchAttackJust = false;
+    if (touchInput.attack && !this._touchAttackPrev) touchAttackJust = true;
+    this._touchAttackPrev = touchInput.attack;
+
+    // Touch potion: detect rising edge
+    let touchPotionJust = false;
+    if (touchInput.potion && !this._touchPotionPrev) touchPotionJust = true;
+    this._touchPotionPrev = touchInput.potion;
+
     // Attack
-    if (Phaser.Input.Keyboard.JustDown(this.spaceKey)) {
+    if (Phaser.Input.Keyboard.JustDown(this.spaceKey) || touchAttackJust) {
       // Check for store first
       const dirs = [[0,-1],[0,1],[-1,0],[1,0],[0,0]];
       let nearStore = false;
@@ -3019,8 +3074,8 @@ class GameScene extends Phaser.Scene {
       }
     }
 
-    // Manual potion: press F
-    if (Phaser.Input.Keyboard.JustDown(this.fKey)) {
+    // Manual potion: press F or touch potion button
+    if (Phaser.Input.Keyboard.JustDown(this.fKey) || touchPotionJust) {
       this.usePotion();
     }
 
@@ -3213,32 +3268,51 @@ class TitleScene extends Phaser.Scene {
 
     const guideG = this.add.graphics();
     guideG.fillStyle(0xFFFFFF, 0.05);
-    guideG.fillRoundedRect(cx - 200, controlsY - 8, 400, 105, 10);
+    guideG.fillRoundedRect(cx - 200, controlsY - 8, 400, isMobile ? 80 : 105, 10);
 
-    // Row 1: Move
-    this.add.text(cx - 180, controlsY, 'Arrows / WASD', keyStyle);
-    this.add.text(cx + 50, controlsY, 'Move', controlStyle);
-    guideG.fillStyle(COLORS.PLAYER, 1);
-    guideG.fillRoundedRect(cx + 120, controlsY - 1, 14, 14, 4);
-    guideG.fillStyle(0xFFFFFF, 1);
-    guideG.fillCircle(cx + 124, controlsY + 4, 2);
-    guideG.fillCircle(cx + 130, controlsY + 4, 2);
+    if (isMobile) {
+      // Mobile controls guide
+      this.add.text(cx - 180, controlsY, 'D-Pad', keyStyle);
+      this.add.text(cx + 50, controlsY, 'Move', controlStyle);
+      guideG.fillStyle(COLORS.PLAYER, 1);
+      guideG.fillRoundedRect(cx + 120, controlsY - 1, 14, 14, 4);
+      guideG.fillStyle(0xFFFFFF, 1);
+      guideG.fillCircle(cx + 124, controlsY + 4, 2);
+      guideG.fillCircle(cx + 130, controlsY + 4, 2);
 
-    // Row 2: Attack
-    this.add.text(cx - 180, controlsY + 24, 'Space', keyStyle);
-    this.add.text(cx + 50, controlsY + 24, 'Attack + Mine', controlStyle);
-    drawSword(guideG, cx + 138, controlsY + 32, 12, 0x999999);
+      this.add.text(cx - 180, controlsY + 24, 'Sword btn', keyStyle);
+      this.add.text(cx + 50, controlsY + 24, 'Attack + Mine + Store', controlStyle);
+      drawSword(guideG, cx + 138, controlsY + 32, 12, 0x999999);
 
-    // Row 3: Store
-    this.add.text(cx - 180, controlsY + 48, 'E', keyStyle);
-    this.add.text(cx + 50, controlsY + 48, 'Open Store', controlStyle);
-    guideG.fillStyle(0x3CB371, 0.8);
-    guideG.fillRoundedRect(cx + 132, controlsY + 46, 12, 12, 3);
+      this.add.text(cx - 180, controlsY + 48, 'Heart btn', keyStyle);
+      this.add.text(cx + 50, controlsY + 48, 'Drink Potion / Close Store', controlStyle);
+      drawPotion(guideG, cx + 138, controlsY + 56, 12);
+    } else {
+      // Row 1: Move
+      this.add.text(cx - 180, controlsY, 'Arrows / WASD', keyStyle);
+      this.add.text(cx + 50, controlsY, 'Move', controlStyle);
+      guideG.fillStyle(COLORS.PLAYER, 1);
+      guideG.fillRoundedRect(cx + 120, controlsY - 1, 14, 14, 4);
+      guideG.fillStyle(0xFFFFFF, 1);
+      guideG.fillCircle(cx + 124, controlsY + 4, 2);
+      guideG.fillCircle(cx + 130, controlsY + 4, 2);
 
-    // Row 4: Potion
-    this.add.text(cx - 180, controlsY + 72, 'F', keyStyle);
-    this.add.text(cx + 50, controlsY + 72, 'Drink Potion', controlStyle);
-    drawPotion(guideG, cx + 138, controlsY + 80, 12);
+      // Row 2: Attack
+      this.add.text(cx - 180, controlsY + 24, 'Space', keyStyle);
+      this.add.text(cx + 50, controlsY + 24, 'Attack + Mine', controlStyle);
+      drawSword(guideG, cx + 138, controlsY + 32, 12, 0x999999);
+
+      // Row 3: Store
+      this.add.text(cx - 180, controlsY + 48, 'E', keyStyle);
+      this.add.text(cx + 50, controlsY + 48, 'Open Store', controlStyle);
+      guideG.fillStyle(0x3CB371, 0.8);
+      guideG.fillRoundedRect(cx + 132, controlsY + 46, 12, 12, 3);
+
+      // Row 4: Potion
+      this.add.text(cx - 180, controlsY + 72, 'F', keyStyle);
+      this.add.text(cx + 50, controlsY + 72, 'Drink Potion', controlStyle);
+      drawPotion(guideG, cx + 138, controlsY + 80, 12);
+    }
 
     // Decorative zombies on sides
     const decoG = this.add.graphics();
@@ -3282,7 +3356,7 @@ class TitleScene extends Phaser.Scene {
     this.playBtn.fillStyle(0xFFFFFF, 1);
     this.playBtn.fillTriangle(cx - 10, btnY - 14, cx - 10, btnY + 14, cx + 16, btnY);
 
-    this.add.text(cx, btnY + 46, 'Press SPACE to play', {
+    this.add.text(cx, btnY + 46, isMobile ? 'Tap to play' : 'Press SPACE to play', {
       fontSize: '13px', fontFamily: 'Arial, sans-serif', fill: '#666666'
     }).setOrigin(0.5);
 
@@ -3291,7 +3365,7 @@ class TitleScene extends Phaser.Scene {
       duration: 600, yoyo: true, repeat: -1, ease: 'Sine.easeInOut'
     });
 
-    this.input.keyboard.once('keydown-SPACE', () => {
+    const startGame = () => {
       gameState.floor = 1;
       gameState.coins = 0;
       gameState.hp = 10;
@@ -3312,8 +3386,43 @@ class TitleScene extends Phaser.Scene {
       this.cameras.main.fade(500, 0, 0, 0, false, (camera, progress) => {
         if (progress >= 1) this.scene.start('GameScene');
       });
-    });
+    };
+
+    this.input.keyboard.once('keydown-SPACE', startGame);
+    this.input.once('pointerdown', startGame);
   }
+}
+
+// ============================================================
+// MOBILE TOUCH INPUT
+// ============================================================
+const isMobile = /Android|iPhone|iPad|iPod|webOS/i.test(navigator.userAgent) || ('ontouchstart' in window && window.innerWidth < 1024);
+const touchInput = { up: false, down: false, left: false, right: false, attack: false, potion: false };
+
+if (isMobile) {
+  document.getElementById('touch-controls').classList.add('visible');
+
+  function bindDpad(id, dir) {
+    const el = document.getElementById(id);
+    const start = (e) => { e.preventDefault(); touchInput[dir] = true; el.classList.add('pressed'); };
+    const end = (e) => { e.preventDefault(); touchInput[dir] = false; el.classList.remove('pressed'); };
+    el.addEventListener('touchstart', start, { passive: false });
+    el.addEventListener('touchend', end, { passive: false });
+    el.addEventListener('touchcancel', end, { passive: false });
+  }
+  bindDpad('dpad-up', 'up');
+  bindDpad('dpad-down', 'down');
+  bindDpad('dpad-left', 'left');
+  bindDpad('dpad-right', 'right');
+
+  function bindAction(id, action) {
+    const el = document.getElementById(id);
+    el.addEventListener('touchstart', (e) => { e.preventDefault(); touchInput[action] = true; el.classList.add('pressed'); }, { passive: false });
+    el.addEventListener('touchend', (e) => { e.preventDefault(); touchInput[action] = false; el.classList.remove('pressed'); }, { passive: false });
+    el.addEventListener('touchcancel', (e) => { e.preventDefault(); touchInput[action] = false; el.classList.remove('pressed'); }, { passive: false });
+  }
+  bindAction('btn-attack', 'attack');
+  bindAction('btn-potion', 'potion');
 }
 
 // ============================================================
@@ -3325,6 +3434,7 @@ const config = {
   width: 800,
   height: 600,
   pixelArt: true,
+  input: { touch: true },
   scale: {
     mode: Phaser.Scale.FIT,
     autoCenter: Phaser.Scale.CENTER_BOTH
