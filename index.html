@@ -1199,68 +1199,38 @@ class GameScene extends Phaser.Scene {
     // Wall patterns vary by biome
     if (tile === TILE.WALL) {
       if (this.biome === 'forest') {
-        // Normal leafy tree
-        // Trunk
+        // Normal leafy tree (optimized)
         g.fillStyle(0x6B4226, 1);
-        g.fillRect(px + 14, py + 18, 12, 22);
-        // Big round leaf canopy
+        g.fillRect(px + 14, py + 20, 12, 20);
         g.fillStyle(0x2E8B2E, 1);
         g.fillCircle(px + 20, py + 12, 14);
-        // Lighter leaf highlights
-        g.fillStyle(0x44AA44, 0.7);
-        g.fillCircle(px + 15, py + 8, 7);
-        g.fillCircle(px + 26, py + 10, 6);
-        g.fillCircle(px + 20, py + 5, 5);
-        // Darkest shadow at bottom of canopy
-        g.fillStyle(0x1A6B1A, 0.5);
-        g.fillCircle(px + 20, py + 18, 8);
+        g.fillStyle(0x44AA44, 0.6);
+        g.fillCircle(px + 16, py + 8, 6);
+        g.fillCircle(px + 25, py + 9, 5);
       } else if (this.biome === 'ice') {
-        // Pine tree (triangle shape)
-        // Trunk
+        // Pine tree with snow (optimized)
         g.fillStyle(0x5A3A1A, 1);
         g.fillRect(px + 16, py + 28, 8, 12);
-        // Three layered triangle sections (top to bottom)
         g.fillStyle(0x1B5E3A, 1);
         g.fillTriangle(px + 20, py + 2, px + 8, py + 16, px + 32, py + 16);
-        g.fillStyle(0x1B6B3A, 1);
-        g.fillTriangle(px + 20, py + 10, px + 5, py + 24, px + 35, py + 24);
         g.fillStyle(0x1B7B3A, 1);
-        g.fillTriangle(px + 20, py + 16, px + 3, py + 30, px + 37, py + 30);
-        // Snow on branches
+        g.fillTriangle(px + 20, py + 12, px + 4, py + 30, px + 36, py + 30);
         g.fillStyle(0xFFFFFF, 0.7);
-        g.fillCircle(px + 14, py + 15, 3);
-        g.fillCircle(px + 26, py + 14, 2.5);
-        g.fillCircle(px + 10, py + 23, 3);
-        g.fillCircle(px + 30, py + 22, 2.5);
+        g.fillCircle(px + 13, py + 15, 3);
+        g.fillCircle(px + 27, py + 14, 2.5);
         g.fillCircle(px + 20, py + 4, 2);
       } else if (this.biome === 'sand') {
-        // Palm tree
-        // Curved trunk (slight lean)
+        // Palm tree (optimized)
         g.fillStyle(0x8B6914, 1);
-        g.fillRect(px + 16, py + 16, 8, 24);
-        g.fillRect(px + 15, py + 20, 10, 4);
-        g.fillRect(px + 17, py + 12, 7, 6);
-        // Trunk rings
-        g.fillStyle(0x705010, 0.5);
+        g.fillRect(px + 16, py + 14, 8, 26);
+        g.fillStyle(0x705010, 0.4);
         g.fillRect(px + 16, py + 20, 8, 2);
-        g.fillRect(px + 16, py + 26, 8, 2);
-        g.fillRect(px + 16, py + 32, 8, 2);
-        // Palm fronds (drooping leaves going outward)
+        g.fillRect(px + 16, py + 28, 8, 2);
         g.fillStyle(0x2D8B2D, 1);
-        // Left frond
         g.fillTriangle(px + 18, py + 12, px + 1, py + 8, px + 4, py + 18);
-        // Right frond
         g.fillTriangle(px + 22, py + 12, px + 39, py + 6, px + 36, py + 16);
-        // Top frond
         g.fillTriangle(px + 20, py + 10, px + 12, py + 1, px + 28, py + 1);
-        // Lower left frond
         g.fillTriangle(px + 17, py + 14, px + 2, py + 22, px + 8, py + 14);
-        // Lower right frond
-        g.fillTriangle(px + 23, py + 14, px + 38, py + 20, px + 32, py + 12);
-        // Lighter frond highlights
-        g.fillStyle(0x44AA44, 0.4);
-        g.fillTriangle(px + 20, py + 10, px + 14, py + 3, px + 26, py + 3);
-        // Coconuts
         g.fillStyle(0x8B4513, 1);
         g.fillCircle(px + 17, py + 13, 3);
         g.fillCircle(px + 23, py + 14, 3);
